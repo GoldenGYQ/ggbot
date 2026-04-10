@@ -23,13 +23,18 @@ from ..core.session_meta import (
 )
 from ..core.sessions import default_sessions
 from ..core.agent_loop import run_query
+from ..core.agent_loop import ToolLimits
 from ..core.transcript import Transcript, clear_transcript, load_model_messages, open_session
 from ..core.types import ChatMessage
 from ..providers.openai_client import OpenAICompatibleClient
 from ..tools.file_tools import make_file_tools
 from ..tools.jobs_tool import make_job_tools
+from ..tools.context import ToolContext
 from ..tools.registry import ToolRegistry
 from ..tools.shell_tool import make_shell_tool
+from ..tools.shell_stream_tool import make_shell_stream_tool
+from ..tools.status_tool import make_status_tool
+from ..tools.http_tools import make_http_tools
 from ..tools.workspace_tools import make_workspace_tools
 from .pets import PetBones, Species, list_species, render_sprite
 
@@ -73,10 +78,27 @@ def _register_builtin_tools(
         confirm_callback=shell_confirm_callback,
     )
     shell_jobs, shell_tail, shell_kill = make_job_tools(workspace_root=settings.workspace_root)
+    status_update = make_status_tool()
+    shell_stream = make_shell_stream_tool(workspace_root=settings.workspace_root)
+    http_get, duckduckgo_search, news_search = make_http_tools()
 
-    for fn in (file_read, file_write, create_workspace, workspace_list, shell_run, shell_jobs, shell_tail, shell_kill):
-        reg = getattr(fn, "__ggbot_tool__")
-        registry.register(reg.spec, reg.handler)
+    registry.register_all(
+        (
+            file_read,
+            file_write,
+            create_workspace,
+            workspace_list,
+            shell_run,
+            shell_stream,
+            shell_jobs,
+            shell_tail,
+            shell_kill,
+            status_update,
+            http_get,
+            duckduckgo_search,
+            news_search,
+        )
+    )
 
 
 def _ensure_message_bootstrap(messages: list[ChatMessage], transcript: Transcript) -> None:
@@ -99,9 +121,9 @@ class _Runtime:
 
 _GYQ666_LOGO_LINES = [
     " █████  █     █   █████     █████   █████   █████ ",
-    "█       █     █  █     █   █       █       █      ",
-    "█   ███  █   █   █     █   ██████  ██████  ██████ ",
-    "█     █   ███    █     █   █     █ █     █ █     █",
+    "█        █   █   █     █   █       █       █      ",
+    "█   ███   ███    █     █   ██████  ██████  ██████ ",
+    "█     █    █     █     █   █     █ █     █ █     █",
     " █████     █      ███████   █████   █████   █████ ",
 ]
 
@@ -181,11 +203,20 @@ class GGbotTui(App[None]):
         self._pending_shell_confirm: tuple[str, Event, dict[str, str | None]] | None = None
         self._pending_clear_confirm: bool = False
         self._busy: bool = False
+        self._status_updates: list[str] = []
         self._transcript_dir = self.runtime.settings.resolved_transcript_dir()
         self._session_meta: dict[str, SessionMeta] = load_session_meta(self._transcript_dir)
         if self.runtime.session_id not in self._session_meta:
             self._session_meta[self.runtime.session_id] = SessionMeta(session_id=self.runtime.session_id)
             save_session_meta(self._transcript_dir, self._session_meta)
+
+    def _push_status_update(self, text: str) -> None:
+        text = (text or "").strip()
+        if not text:
+            return
+        self._status_updates.append(text)
+        if len(self._status_updates) > 3:
+            self._status_updates = self._status_updates[-3:]
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -210,7 +241,20 @@ class GGbotTui(App[None]):
         self._render_history_bootstrap()
         self._render_loaded_history()
         self._render_top_left()
+        self._render_top_right()
         self._render_status()
+
+    def _render_top_right(self) -> None:
+        # Keep tips on the right, and show recent status updates underneath.
+        lines: list[str] = [WELCOME_RIGHT.strip()]
+
+        if self._status_updates:
+            lines.append("")
+            lines.append("Status (latest 3)")
+            for s in reversed(self._status_updates[-3:]):
+                lines.append(f"- {s}")
+
+        self.query_one("#top_right", Static).update("\n".join(lines).strip() + "\n")
 
     def _render_loaded_history(self) -> None:
         log = self.query_one(RichLog)
@@ -231,9 +275,19 @@ class GGbotTui(App[None]):
 
             if msg.role == "tool":
                 name = msg.name or "tool"
+                content = (msg.content or "").strip()
+                if name == "status_update":
+                    if content:
+                        self._push_status_update(content)
+                        self._render_top_right()
+                        line = Text("[status] ", style="bold cyan")
+                        line.append(content)
+                        log.write(line)
+                    continue
+
                 log.write(Text(f"[tool:{name}]", style="bold magenta"))
-                if (msg.content or "").strip():
-                    log.write(msg.content)
+                if content:
+                    log.write(content)
                 log.write(Text(f"[/tool:{name}]", style="dim"))
                 continue
 
@@ -244,8 +298,8 @@ class GGbotTui(App[None]):
     def _render_status(self) -> None:
         meta = self._session_meta.get(self.runtime.session_id)
         title = (meta.title if meta else "Untitled").strip() or "Untitled"
-        text = f"{self.runtime.settings.openai_model} · {self.runtime.settings.workspace_root} · {title}"
-        self.query_one("#status_line", Static).update(text)
+        header = f"{self.runtime.settings.openai_model} · {self.runtime.settings.workspace_root} · {title}"
+        self.query_one("#status_line", Static).update(header)
 
     def _render_permission_prompt(self, command: str) -> None:
         # Keep permission UX out of the chat log to avoid mixing prompts with conversation.
@@ -621,8 +675,20 @@ class GGbotTui(App[None]):
 
         def tool_printer(name: str, output: str) -> None:
             def write() -> None:
+                out = (output or "").strip()
+                if name == "status_update":
+                    if out:
+                        self._push_status_update(out)
+                        self._render_status()
+                        self._render_top_right()
+                        line = Text("[status] ", style="bold cyan")
+                        line.append(out)
+                        self.query_one(RichLog).write(line)
+                    return
+
                 self.query_one(RichLog).write(Text(f"[tool:{name}]", style="bold magenta"))
-                self.query_one(RichLog).write(output)
+                if out:
+                    self.query_one(RichLog).write(out)
                 self.query_one(RichLog).write(Text(f"[/tool:{name}]", style="dim"))
 
             self.call_from_thread(write)
@@ -643,6 +709,11 @@ class GGbotTui(App[None]):
                 self.call_from_thread(update_title)
 
         try:
+            tool_context = ToolContext(
+                session_id=self.runtime.session_id,
+                transcript=self.runtime.transcript,
+                workspace_root=self.runtime.settings.workspace_root,
+            )
             run_query(
                 client=self.runtime.client,
                 registry=self.runtime.registry,
@@ -652,6 +723,12 @@ class GGbotTui(App[None]):
                 max_turns=self.runtime.settings.max_turns,
                 stream_printer=printer,
                 tool_printer=tool_printer,
+                tool_context=tool_context,
+                tool_limits=ToolLimits(
+                    max_tool_calls=self.runtime.settings.max_tool_calls,
+                    max_tool_calls_per_tool=self.runtime.settings.max_tool_calls_per_tool,
+                    max_tool_calls_same_args=self.runtime.settings.max_tool_calls_same_args,
+                ),
             )
         except Exception as e:
             def write_error() -> None:

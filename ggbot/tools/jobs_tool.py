@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import time
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -32,12 +33,9 @@ def _truncate(s: str, limit: int) -> str:
 
 
 def make_job_tools(*, workspace_root: Path):
-    @tool(
-        name="shell_jobs",
-        description="List background shell jobs started via shell_run(background=true).",
-        input_model=ShellJobsArgs,
-    )
+    @tool()
     def shell_jobs(args: ShellJobsArgs) -> str:
+        """List background shell jobs started via shell_run(background=true)."""
         jobs = load_jobs(workspace_root=workspace_root)
         if not jobs:
             return "No jobs."
@@ -47,7 +45,7 @@ def make_job_tools(*, workspace_root: Path):
         for rec in jobs.values():
             if rec.status == "running" and not pid_is_running(rec.pid):
                 rec.status = "exited"
-                rec.updated_ms = rec.updated_ms
+                rec.updated_ms = int(time.time() * 1000)
                 changed = True
         if changed:
             save_jobs(workspace_root=workspace_root, jobs=jobs)
@@ -57,12 +55,9 @@ def make_job_tools(*, workspace_root: Path):
             lines.append(f"{job_id}\t{rec.status}\t{rec.pid}\t{rec.command}")
         return "\n".join(lines)
 
-    @tool(
-        name="shell_tail",
-        description="Read the tail of a background job's log.",
-        input_model=ShellTailArgs,
-    )
+    @tool()
     def shell_tail(args: ShellTailArgs) -> str:
+        """Read the tail of a background job's log."""
         jobs = load_jobs(workspace_root=workspace_root)
         rec = jobs.get(args.job_id)
         if rec is None:
@@ -82,12 +77,9 @@ def make_job_tools(*, workspace_root: Path):
         tail = text[-args.max_chars :]
         return tail
 
-    @tool(
-        name="shell_kill",
-        description="Stop a background job started via shell_run(background=true).",
-        input_model=ShellKillArgs,
-    )
+    @tool()
     def shell_kill(args: ShellKillArgs) -> str:
+        """Stop a background job started via shell_run(background=true)."""
         jobs = load_jobs(workspace_root=workspace_root)
         rec = jobs.get(args.job_id)
         if rec is None:

@@ -37,12 +37,9 @@ class WorkspaceListArgs(BaseModel):
 
 
 def make_workspace_tools(*, workspace_root: Path):
-    @tool(
-        name="create_workspace",
-        description="Create a directory structure under workspace_root.",
-        input_model=CreateWorkspaceArgs,
-    )
+    @tool()
     def create_workspace(args: CreateWorkspaceArgs) -> str:
+        """Create a directory structure under workspace_root."""
         base = ensure_under_root(workspace_root, workspace_root / args.path)
         base.mkdir(parents=True, exist_ok=True)
 
@@ -55,12 +52,9 @@ def make_workspace_tools(*, workspace_root: Path):
         rel_paths = [str(p.relative_to(workspace_root)) if p != workspace_root else "." for p in created]
         return "Created workspace paths:\n" + "\n".join(f"- {r}" for r in rel_paths)
 
-    @tool(
-        name="workspace_list",
-        description="List files and directories under workspace_root.",
-        input_model=WorkspaceListArgs,
-    )
+    @tool()
     def workspace_list(args: WorkspaceListArgs) -> str:
+        """List files and directories under workspace_root."""
         root = ensure_under_root(workspace_root, workspace_root / args.path)
         if not root.exists():
             return f"Path does not exist: {args.path}"

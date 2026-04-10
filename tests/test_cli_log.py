@@ -58,3 +58,15 @@ def test_log_command_can_disable_runtime_events(tmp_path: Path) -> None:
     assert res.exit_code == 0
     assert "[EVENT]" not in res.stdout
     assert "[USER] hello" in res.stdout
+
+
+def test_log_command_renders_status_events(tmp_path: Path) -> None:
+    transcript_dir = tmp_path / ".ggbot" / "transcripts"
+    transcript = Transcript(path=transcript_dir / "repl.jsonl")
+    transcript.append("status", {"message": "Working...", "stage": "run", "percent": 5})
+
+    runner = CliRunner()
+    res = runner.invoke(app, ["log", "--workspace-root", str(tmp_path), "--session", "repl"])
+
+    assert res.exit_code == 0
+    assert "[EVENT] status stage=run percent=5 Working..." in res.stdout

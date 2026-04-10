@@ -12,7 +12,7 @@ def test_create_workspace_creates_base_and_subdirs(tmp_path: Path) -> None:
     create_workspace, _ = make_workspace_tools(workspace_root=tmp_path)
     reg = getattr(create_workspace, "__ggbot_tool__")
 
-    out = reg.handler({"path": "demo", "directories": ["src", "tests/unit"]})
+    out = reg.handler({"path": "demo", "directories": ["src", "tests/unit"]}, None)
 
     assert (tmp_path / "demo").is_dir()
     assert (tmp_path / "demo" / "src").is_dir()
@@ -25,7 +25,7 @@ def test_create_workspace_blocks_escape(tmp_path: Path) -> None:
     reg = getattr(create_workspace, "__ggbot_tool__")
 
     with pytest.raises(PermissionError):
-        reg.handler({"path": "..\\outside"})
+        reg.handler({"path": "..\\outside"}, None)
 
 
 def test_workspace_list_includes_dirs_and_files(tmp_path: Path) -> None:
@@ -34,7 +34,7 @@ def test_workspace_list_includes_dirs_and_files(tmp_path: Path) -> None:
 
     _, workspace_list = make_workspace_tools(workspace_root=tmp_path)
     reg = getattr(workspace_list, "__ggbot_tool__")
-    out = reg.handler({"path": "demo", "max_depth": 3, "include_files": True})
+    out = reg.handler({"path": "demo", "max_depth": 3, "include_files": True}, None)
 
     assert "demo/" in out
     assert "src/" in out
@@ -46,4 +46,4 @@ def test_workspace_list_blocks_escape(tmp_path: Path) -> None:
     reg = getattr(workspace_list, "__ggbot_tool__")
 
     with pytest.raises(PermissionError):
-        reg.handler({"path": "..\\outside"})
+        reg.handler({"path": "..\\outside"}, None)

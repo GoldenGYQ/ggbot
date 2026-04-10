@@ -33,7 +33,8 @@ class _FakeClient:
 def test_tool_printer_called(tmp_path) -> None:
     registry = ToolRegistry()
 
-    def echo(args: dict[str, Any]) -> str:
+    def echo(args: dict[str, Any], ctx) -> str:
+        _ = ctx
         return f"ok:{args['x']}"
 
     spec = ToolSpec(

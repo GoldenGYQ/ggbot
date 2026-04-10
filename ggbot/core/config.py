@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # Behavior
     max_turns: int = Field(default=8, alias="GGBOT_MAX_TURNS")
 
+    # Tool loop safety (prevents runaway repeated tool calls)
+    max_tool_calls: int = Field(default=30, alias="GGBOT_MAX_TOOL_CALLS")
+    max_tool_calls_per_tool: int = Field(default=12, alias="GGBOT_MAX_TOOL_CALLS_PER_TOOL")
+    max_tool_calls_same_args: int = Field(default=3, alias="GGBOT_MAX_TOOL_CALLS_SAME_ARGS")
+
     # Transcript
     transcript_dir: Path | None = Field(default=None, alias="GGBOT_TRANSCRIPT_DIR")
 
@@ -98,6 +103,20 @@ class Settings(BaseSettings):
             settings.workspace_root = Path(str(ws))
 
         cls._apply_if_env_missing(settings, "GGBOT_MAX_TURNS", "max_turns", ggbot.get("max_turns"))
+
+        cls._apply_if_env_missing(settings, "GGBOT_MAX_TOOL_CALLS", "max_tool_calls", ggbot.get("max_tool_calls"))
+        cls._apply_if_env_missing(
+            settings,
+            "GGBOT_MAX_TOOL_CALLS_PER_TOOL",
+            "max_tool_calls_per_tool",
+            ggbot.get("max_tool_calls_per_tool"),
+        )
+        cls._apply_if_env_missing(
+            settings,
+            "GGBOT_MAX_TOOL_CALLS_SAME_ARGS",
+            "max_tool_calls_same_args",
+            ggbot.get("max_tool_calls_same_args"),
+        )
 
         td = transcript.get("dir")
         if td is not None and "GGBOT_TRANSCRIPT_DIR" not in os.environ:

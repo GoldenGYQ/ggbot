@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import traceback
 from dataclasses import dataclass
+from collections.abc import Callable
+import json
 
 from ..providers.openai_client import OpenAIClientError, OpenAICompatibleClient
+from ..tools.context import ToolContext
 from ..tools.registry import ToolRegistry, parse_tool_arguments
 from .transcript import Transcript
 from .types import ChatMessage, ToolCall
@@ -12,6 +15,51 @@ from .types import ChatMessage, ToolCall
 @dataclass(frozen=True)
 class QueryResult:
     messages: list[ChatMessage]
+
+
+@dataclass
+class ToolLimits:
+    max_tool_calls: int = 30
+    max_tool_calls_per_tool: int = 12
+    max_tool_calls_same_args: int = 3
+
+
+@dataclass
+class _ToolBudgetState:
+    limits: ToolLimits
+    total: int = 0
+    per_tool: dict[str, int] = None  # type: ignore[assignment]
+    per_tool_args: dict[tuple[str, str], int] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.per_tool is None:
+            self.per_tool = {}
+        if self.per_tool_args is None:
+            self.per_tool_args = {}
+
+    def check_and_record(self, *, name: str, args: dict) -> str | None:
+        """Return cancel reason if budget exceeded, else None."""
+        self.total += 1
+        if self.total > self.limits.max_tool_calls:
+            return f"Tool budget exceeded: max_tool_calls={self.limits.max_tool_calls}"
+
+        self.per_tool[name] = self.per_tool.get(name, 0) + 1
+        if self.per_tool[name] > self.limits.max_tool_calls_per_tool:
+            return (
+                "Tool budget exceeded: "
+                f"tool={name} max_per_tool={self.limits.max_tool_calls_per_tool}"
+            )
+
+        args_key = json.dumps(args, ensure_ascii=False, sort_keys=True)
+        k = (name, args_key)
+        self.per_tool_args[k] = self.per_tool_args.get(k, 0) + 1
+        if self.per_tool_args[k] > self.limits.max_tool_calls_same_args:
+            return (
+                "Tool budget exceeded: "
+                f"tool={name} max_same_args={self.limits.max_tool_calls_same_args}"
+            )
+
+        return None
 
 
 def _auto_heal_missing_tool_messages(*, messages: list[ChatMessage], transcript: Transcript) -> None:
@@ -128,8 +176,10 @@ def run_query(
     messages: list[ChatMessage],
     user_text: str,
     max_turns: int,
-    stream_printer: callable | None = None,
-    tool_printer: callable | None = None,
+    stream_printer: Callable[[str], None] | None = None,
+    tool_printer: Callable[[str, str], None] | None = None,
+    tool_context: ToolContext | None = None,
+    tool_limits: ToolLimits | None = None,
 ) -> QueryResult:
     messages.append(ChatMessage(role="user", content=user_text))
     transcript.append("model_message", messages[-1].model_dump(exclude_none=True))
@@ -137,6 +187,7 @@ def run_query(
     tools = registry.openai_tools()
 
     turns = 0
+    budget = _ToolBudgetState(tool_limits or ToolLimits())
     while turns < max_turns:
         turns += 1
 
@@ -206,6 +257,8 @@ def run_query(
                 transcript=transcript,
                 messages=messages,
                 tool_printer=tool_printer,
+                tool_context=tool_context,
+                budget=budget,
             )
 
     return QueryResult(messages=messages)
@@ -217,7 +270,9 @@ def _execute_tool_call(
     registry: ToolRegistry,
     transcript: Transcript,
     messages: list[ChatMessage],
-    tool_printer: callable | None = None,
+    tool_printer: Callable[[str, str], None] | None = None,
+    tool_context: ToolContext | None = None,
+    budget: _ToolBudgetState | None = None,
 ) -> None:
     name = tool_call.function.name
     raw_arguments = tool_call.function.arguments or ""
@@ -277,8 +332,40 @@ def _execute_tool_call(
         },
     )
 
+    if budget is not None:
+        cancel_reason = budget.check_and_record(name=name, args=args)
+        if cancel_reason is not None:
+            result_text = (
+                f"Cancelled: {cancel_reason}.\n"
+                "Please stop repeating this tool call and use the results already obtained."
+            )
+
+            if tool_printer is not None:
+                tool_printer(name, result_text)
+
+            tool_msg = ChatMessage(
+                role="tool",
+                content=result_text,
+                tool_call_id=tool_call.id,
+                name=name,
+            )
+            messages.append(tool_msg)
+            transcript.append("model_message", tool_msg.model_dump(exclude_none=True))
+            transcript.append(
+                "tool_result",
+                {
+                    "id": tool_call.id,
+                    "name": name,
+                    "content_len": len(tool_msg.content),
+                    "error": True,
+                    "budget_exceeded": True,
+                },
+            )
+            return
+
     try:
-        result = registry.call(name, args)
+        call_ctx = tool_context.for_call(tool_name=name, tool_call_id=tool_call.id) if tool_context else None
+        result = registry.call(name, args, ctx=call_ctx)
         result_text = str(result)
     except Exception as e:
         tb = traceback.format_exc()

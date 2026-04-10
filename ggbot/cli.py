@@ -10,12 +10,16 @@ import typer
 
 from ggbot.core.config import Settings
 from ggbot.core.sessions import default_sessions
-from ggbot.core.agent_loop import run_query
+from ggbot.core.agent_loop import ToolLimits, run_query
 from ggbot.providers.openai_client import OpenAICompatibleClient
 from ggbot.tools.file_tools import make_file_tools
 from ggbot.tools.jobs_tool import make_job_tools
+from ggbot.tools.context import ToolContext
 from ggbot.tools.registry import ToolRegistry
 from ggbot.tools.shell_tool import make_shell_tool
+from ggbot.tools.shell_stream_tool import make_shell_stream_tool
+from ggbot.tools.status_tool import make_status_tool
+from ggbot.tools.http_tools import make_http_tools
 from ggbot.tools.workspace_tools import make_workspace_tools
 from ggbot.core.transcript import Transcript, load_model_messages, open_session
 from ggbot.core.types import ChatMessage
@@ -135,6 +139,28 @@ def _render_event_line(
         err = str(data.get("error") or "unknown")
         return f"{ts_prefix}[EVENT] provider_error {err}"
 
+    if event_type == "status":
+        msg = str(data.get("message") or "")
+        stage = data.get("stage")
+        percent = data.get("percent")
+
+        extras: list[str] = []
+        if stage is not None:
+            extras.append(f"stage={stage}")
+        if percent is not None:
+            extras.append(f"percent={percent}")
+
+        extra_text = (" " + " ".join(extras)) if extras else ""
+        return f"{ts_prefix}[EVENT] status{extra_text} {msg}"
+
+    if event_type == "tool_stream":
+        name = str(data.get("name") or "<unknown>")
+        chunk = str(data.get("chunk") or "")
+        chunk = chunk.replace("\r", "")
+        if len(chunk) > 200:
+            chunk = chunk[:200] + "…"
+        return f"{ts_prefix}[EVENT] tool_stream name={name} chunk={chunk!r}"
+
     return None
 
 
@@ -222,10 +248,27 @@ def _register_builtin_tools(registry: ToolRegistry, settings: Settings, *, shell
         confirm_callback=shell_confirm_callback,
     )
     shell_jobs, shell_tail, shell_kill = make_job_tools(workspace_root=settings.workspace_root)
+    status_update = make_status_tool()
+    shell_stream = make_shell_stream_tool(workspace_root=settings.workspace_root)
+    http_get, duckduckgo_search, news_search = make_http_tools()
 
-    for fn in (file_read, file_write, create_workspace, workspace_list, shell_run, shell_jobs, shell_tail, shell_kill):
-        reg = getattr(fn, "__ggbot_tool__")
-        registry.register(reg.spec, reg.handler)
+    registry.register_all(
+        (
+            file_read,
+            file_write,
+            create_workspace,
+            workspace_list,
+            shell_run,
+            shell_stream,
+            shell_jobs,
+            shell_tail,
+            shell_kill,
+            status_update,
+            http_get,
+            duckduckgo_search,
+            news_search,
+        )
+    )
 
 
 def _ensure_message_bootstrap(messages: list[ChatMessage], transcript: Transcript) -> None:
@@ -360,6 +403,11 @@ def chat(
     )
 
     try:
+        tool_context = ToolContext(
+            session_id=session_id,
+            transcript=transcript,
+            workspace_root=settings.workspace_root,
+        )
         run_query(
             client=client,
             registry=registry,
@@ -369,6 +417,12 @@ def chat(
             max_turns=settings.max_turns,
             stream_printer=_print_delta,
             tool_printer=_print_tool_output if show_tools else None,
+            tool_context=tool_context,
+            tool_limits=ToolLimits(
+                max_tool_calls=settings.max_tool_calls,
+                max_tool_calls_per_tool=settings.max_tool_calls_per_tool,
+                max_tool_calls_same_args=settings.max_tool_calls_same_args,
+            ),
         )
         print("")
         print(f"\n[session_id={session_id}] transcript={transcript.path}")
@@ -419,6 +473,11 @@ def repl(
     print("Type /help for commands. Ctrl+C to exit.")
 
     try:
+        tool_context = ToolContext(
+            session_id=session_id,
+            transcript=transcript,
+            workspace_root=settings.workspace_root,
+        )
         while True:
             try:
                 line = input("> ")
@@ -443,6 +502,12 @@ def repl(
                 max_turns=settings.max_turns,
                 stream_printer=_print_delta,
                 tool_printer=_print_tool_output if show_tools else None,
+                tool_context=tool_context,
+                tool_limits=ToolLimits(
+                    max_tool_calls=settings.max_tool_calls,
+                    max_tool_calls_per_tool=settings.max_tool_calls_per_tool,
+                    max_tool_calls_same_args=settings.max_tool_calls_same_args,
+                ),
             )
             print("")
 

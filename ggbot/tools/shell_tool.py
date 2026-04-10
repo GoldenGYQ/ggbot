@@ -37,12 +37,9 @@ def make_shell_tool(
     max_output_chars: int,
     confirm_callback: ConfirmCallback | None = None,
 ):
-    @tool(
-        name="shell_run",
-        description="Run a shell command in workspace_root. Use carefully.",
-        input_model=ShellRunArgs,
-    )
+    @tool()
     def shell_run(args: ShellRunArgs) -> str:
+        """Run a shell command in workspace_root. Use carefully."""
         if confirm:
             if confirm_callback is not None:
                 cancel_reason = confirm_callback(args.command)

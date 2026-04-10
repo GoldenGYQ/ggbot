@@ -5,7 +5,7 @@ from typing import Iterable
 import httpx
 
 from ggbot.providers.openai_client import OpenAICompatibleClient
-from ggbot.core.agent_loop import run_query
+from ggbot.core.agent_loop import ToolLimits, run_query
 from ggbot.tools.registry import ToolRegistry, tool
 from ggbot.core.transcript import Transcript
 from ggbot.core.types import ChatMessage, ToolCall, ToolFunction
@@ -227,6 +227,68 @@ def test_run_query_auto_heals_missing_tool_messages_before_provider_call(tmp_pat
         raise AssertionError("Did not find assistant tool_calls in payload")
 
     client.close()
+
+
+def test_query_loop_cancels_repeated_identical_tool_calls(tmp_path: Path) -> None:
+    # Model asks for the same tool with the same args repeatedly across turns.
+    # Budget should cancel after max_tool_calls_same_args is exceeded.
+
+    class _RepeatClient:
+        def __init__(self) -> None:
+            self.n = 0
+
+        def stream_and_collect(self, *, messages: list[ChatMessage], tools, on_text_delta=None):
+            self.n += 1
+            # Always request the same tool call.
+            return type(
+                "Final",
+                (),
+                {
+                    "content": "",
+                    "tool_calls": [
+                        ToolCall(
+                            id=f"call_{self.n}",
+                            function=ToolFunction(name="duckduckgo_search", arguments='{"query":"x","max_results":1}'),
+                        )
+                    ],
+                },
+            )
+
+    calls: list[dict] = []
+
+    from pydantic import BaseModel
+
+    class Args(BaseModel):
+        query: str
+        max_results: int = 1
+
+    @tool(name="duckduckgo_search", description="ddg", input_model=Args)
+    def ddg(args: Args) -> str:
+        calls.append(args.model_dump())
+        return "ok"
+
+    reg = ToolRegistry()
+    reg_tool = getattr(ddg, "__ggbot_tool__")
+    reg.register(reg_tool.spec, reg_tool.handler)
+
+    transcript = Transcript(path=tmp_path / "t.jsonl")
+    messages: list[ChatMessage] = [ChatMessage(role="system", content="sys")]
+
+    run_query(
+        client=_RepeatClient(),
+        registry=reg,
+        transcript=transcript,
+        messages=messages,
+        user_text="search",
+        max_turns=6,
+        stream_printer=None,
+        tool_limits=ToolLimits(max_tool_calls=100, max_tool_calls_per_tool=100, max_tool_calls_same_args=2),
+    )
+
+    # Tool should have executed only twice; afterwards it gets cancelled.
+    assert len(calls) == 2
+    tool_msgs = [m for m in messages if m.role == "tool"]
+    assert any("Tool budget exceeded" in (m.content or "") for m in tool_msgs)
 
 
 def test_run_query_sanitizes_orphan_tool_messages_before_provider_call(tmp_path: Path) -> None:

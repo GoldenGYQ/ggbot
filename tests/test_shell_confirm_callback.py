@@ -15,5 +15,5 @@ def test_shell_confirm_callback_cancels(tmp_path: Path) -> None:
     )
 
     reg = getattr(shell_run, "__ggbot_tool__")
-    out = reg.handler({"command": "echo hi"})
+    out = reg.handler({"command": "echo hi"}, None)
     assert out == "nope"

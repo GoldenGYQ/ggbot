@@ -21,7 +21,7 @@ def test_shell_run_background_creates_job_and_log(tmp_path: Path) -> None:
     shell_run_handler = getattr(shell_run, "__ggbot_tool__").handler
 
     cmd = f"\"{sys.executable}\" -c \"print('hello-job')\""
-    out = shell_run_handler({"command": cmd, "background": True})
+    out = shell_run_handler({"command": cmd, "background": True}, None)
     assert "Started background job" in out
 
     jobs = load_jobs(workspace_root=ws)
@@ -39,5 +39,5 @@ def test_shell_run_background_creates_job_and_log(tmp_path: Path) -> None:
 
     shell_jobs, shell_tail, shell_kill = make_job_tools(workspace_root=ws)
     shell_tail_handler = getattr(shell_tail, "__ggbot_tool__").handler
-    tail = shell_tail_handler({"job_id": job_id, "max_chars": 2000})
+    tail = shell_tail_handler({"job_id": job_id, "max_chars": 2000}, None)
     assert "hello-job" in tail

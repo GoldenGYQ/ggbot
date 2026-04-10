@@ -18,21 +18,15 @@ class FileWriteArgs(BaseModel):
 
 
 def make_file_tools(*, workspace_root: Path):
-    @tool(
-        name="file_read",
-        description="Read a UTF-8 text file under workspace_root.",
-        input_model=FileReadArgs,
-    )
+    @tool()
     def file_read(args: FileReadArgs) -> str:
+        """Read a UTF-8 text file under workspace_root."""
         p = ensure_under_root(workspace_root, (workspace_root / args.path))
         return p.read_text(encoding="utf-8")
 
-    @tool(
-        name="file_write",
-        description="Write a UTF-8 text file under workspace_root (creates parent dirs if needed).",
-        input_model=FileWriteArgs,
-    )
+    @tool()
     def file_write(args: FileWriteArgs) -> str:
+        """Write a UTF-8 text file under workspace_root (creates parent dirs if needed)."""
         p = ensure_under_root(workspace_root, (workspace_root / args.path))
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(args.content, encoding="utf-8")
