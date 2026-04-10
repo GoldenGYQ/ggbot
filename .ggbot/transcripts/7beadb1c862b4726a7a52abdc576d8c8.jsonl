@@ -1,0 +1,6 @@
+{"ts_ms": 1775213019814, "type": "model_message", "data": {"role": "system", "content": "You are GGbot, a helpful coding CLI agent. Use available tools when needed. When using tools, be concise and safe."}}
+{"ts_ms": 1775213025093, "type": "model_message", "data": {"role": "user", "content": "你好"}}
+{"ts_ms": 1775213026958, "type": "model_message", "data": {"role": "assistant", "content": "你好！我是 GGbot，一个乐于助人的编码 CLI 助手。我可以帮你处理文件读写、运行命令等任务。有什么我可以帮助你的吗？"}}
+{"ts_ms": 1775213061054, "type": "model_message", "data": {"role": "user", "content": "打开 /ggbot/cli。py"}}
+{"ts_ms": 1775213063902, "type": "model_message", "data": {"role": "assistant", "content": "我来帮你打开 `/ggbot/cli.py` 文件。", "tool_calls": [{"id": "call_00_ZSqnWIv4Fh3AEGJHAsd6zuUl", "type": "function", "function": {"name": "file_read", "arguments": "{\"path\": \"/ggbot/cli.py\"}"}}]}}
+{"ts_ms": 1775213063904, "type": "tool_call", "data": {"id": "call_00_ZSqnWIv4Fh3AEGJHAsd6zuUl", "name": "file_read", "arguments": {"path": "/ggbot/cli.py"}}}

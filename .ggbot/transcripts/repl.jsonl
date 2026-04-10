@@ -1,0 +1,3 @@
+{"ts_ms": 1775216121998, "type": "model_message", "data": {"role": "system", "content": "You are GGbot, a helpful coding CLI agent. Use available tools when needed. When using tools, be concise and safe."}}
+{"ts_ms": 1775216660354, "type": "model_message", "data": {"role": "user", "content": "session 5"}}
+{"ts_ms": 1775216662626, "type": "model_message", "data": {"role": "assistant", "content": "I see you've started \"session 5\". How can I help you with your coding work today? Are you working on a specific project, need help with a task, or would you like me to check what's in your workspace?"}}

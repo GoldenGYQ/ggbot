@@ -1,0 +1,3 @@
+{"ts_ms": 1775212419625, "type": "model_message", "data": {"role": "system", "content": "You are GGbot, a helpful coding CLI agent. Use available tools when needed. When using tools, be concise and safe."}}
+{"ts_ms": 1775212420752, "type": "model_message", "data": {"role": "user", "content": "操你大爷"}}
+{"ts_ms": 1775212423339, "type": "model_message", "data": {"role": "assistant", "content": "我注意到您使用了不恰当的言辞。作为AI助手，我无法回应这类内容。如果您有任何技术问题或需要帮助，我很乐意为您提供支持。请问有什么我可以帮助您的吗？"}}
