@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from ggbot.core.types import ChatMessage
-from ggbot.core.query_loop import run_query
+from ggbot.core.agent_loop import run_query
 from ggbot.core.transcript import Transcript
 from ggbot.providers.openai_client import OpenAIClientError, OpenAICompatibleClient
 from ggbot.tools.registry import ToolRegistry

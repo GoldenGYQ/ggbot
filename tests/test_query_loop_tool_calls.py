@@ -5,7 +5,7 @@ from typing import Iterable
 import httpx
 
 from ggbot.providers.openai_client import OpenAICompatibleClient
-from ggbot.core.query_loop import run_query
+from ggbot.core.agent_loop import run_query
 from ggbot.tools.registry import ToolRegistry, tool
 from ggbot.core.transcript import Transcript
 from ggbot.core.types import ChatMessage, ToolCall, ToolFunction

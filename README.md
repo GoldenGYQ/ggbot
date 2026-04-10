@@ -34,6 +34,7 @@ From repo root:
 - `ggbot chat "hello"`
 - `ggbot repl`
 - `ggbot tui`
+- `ggbot log` (view transcript log in terminal)
 
 In REPL, you can create project folders inside the current workspace via:
 
@@ -44,6 +45,14 @@ In TUI:
 
 - `/clear` asks for confirmation, then clears current session history.
 - `/clear-screen` only clears visible screen output.
+
+Log viewer examples:
+
+- `ggbot log` (open the most recent session log)
+- `ggbot log --session repl`
+- `ggbot log --tail 100`
+- `ggbot log --follow` (real-time monitoring)
+- `ggbot log --follow --events` (show runtime events like tool_call/tool_result)
 
 ## Env
 

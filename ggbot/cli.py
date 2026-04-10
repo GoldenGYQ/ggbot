@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import json
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 import typer
 
 from ggbot.core.config import Settings
 from ggbot.core.sessions import default_sessions
-from ggbot.core.query_loop import run_query
+from ggbot.core.agent_loop import run_query
 from ggbot.providers.openai_client import OpenAICompatibleClient
 from ggbot.tools.file_tools import make_file_tools
 from ggbot.tools.jobs_tool import make_job_tools
@@ -57,6 +60,155 @@ def _print_tool_output(name: str, output: str) -> None:
     print(f"[tool:{name}]")
     print(output)
     print(f"[/tool:{name}]")
+
+
+def _most_recent_session_id(transcript_dir: Path) -> str | None:
+    candidates = list(transcript_dir.glob("*.jsonl"))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0].stem
+
+
+def _format_ts(ts_ms: int | None) -> str:
+    if ts_ms is None:
+        return "--:--:--"
+    try:
+        return datetime.fromtimestamp(ts_ms / 1000).strftime("%H:%M:%S")
+    except Exception:
+        return "--:--:--"
+
+
+def _parse_ts_ms(raw: object) -> int | None:
+    if isinstance(raw, (int, float)):
+        return int(raw)
+    if isinstance(raw, str) and raw.isdigit():
+        return int(raw)
+    return None
+
+
+def _render_event_line(
+    ev: dict,
+    *,
+    include_system: bool,
+    include_events: bool,
+) -> str | None:
+    event_type = str(ev.get("type") or "")
+    ts_ms = _parse_ts_ms(ev.get("ts_ms"))
+
+    if event_type == "model_message":
+        data = ev.get("data") or {}
+        try:
+            msg = ChatMessage.model_validate(data)
+        except Exception:
+            return None
+
+        if not include_system and msg.role == "system":
+            return None
+        return _render_log_message(msg, ts_ms=ts_ms)
+
+    if not include_events:
+        return None
+
+    data = ev.get("data") or {}
+    ts_prefix = f"[{_format_ts(ts_ms)}] "
+
+    if event_type == "tool_call":
+        name = str(data.get("name") or "<unknown>")
+        if data.get("arguments") is not None:
+            args_text = json.dumps(data.get("arguments"), ensure_ascii=False)
+        else:
+            args_text = str(data.get("raw_arguments") or "{}")
+        return f"{ts_prefix}[EVENT] tool_call name={name} args={args_text}"
+
+    if event_type == "tool_result":
+        name = str(data.get("name") or "<unknown>")
+        status = "error" if bool(data.get("error")) else "ok"
+        auto_healed = " auto_healed=true" if bool(data.get("auto_healed")) else ""
+        content_len = int(data.get("content_len") or 0)
+        return (
+            f"{ts_prefix}[EVENT] tool_result name={name} status={status} "
+            f"content_len={content_len}{auto_healed}"
+        )
+
+    if event_type == "provider_error":
+        err = str(data.get("error") or "unknown")
+        return f"{ts_prefix}[EVENT] provider_error {err}"
+
+    return None
+
+
+def _iter_rendered_log_lines(
+    path: Path,
+    *,
+    include_system: bool,
+    include_events: bool,
+) -> list[str]:
+    out: list[str] = []
+    if not path.exists():
+        return out
+
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+            except Exception:
+                continue
+
+            rendered = _render_event_line(
+                ev,
+                include_system=include_system,
+                include_events=include_events,
+            )
+            if rendered is not None:
+                out.append(rendered)
+
+    return out
+
+
+def _parse_rendered_event_line(
+    line: str,
+    *,
+    include_system: bool,
+    include_events: bool,
+) -> str | None:
+    try:
+        ev = json.loads(line)
+    except Exception:
+        return None
+    return _render_event_line(
+        ev,
+        include_system=include_system,
+        include_events=include_events,
+    )
+
+
+def _render_log_message(msg: ChatMessage, *, ts_ms: int | None = None) -> str:
+    ts_prefix = f"[{_format_ts(ts_ms)}] "
+    if msg.role == "tool":
+        role_label = f"TOOL:{msg.name or 'tool'}"
+    elif msg.role == "assistant" and msg.tool_calls:
+        role_label = "ASSISTANT:tool_calls"
+    else:
+        role_label = msg.role.upper()
+
+    content = (msg.content or "").strip()
+    if not content and msg.tool_calls:
+        calls = ", ".join(tc.function.name for tc in msg.tool_calls)
+        content = f"(tool calls: {calls})"
+    if not content:
+        content = "(empty)"
+
+    lines = content.splitlines()
+    if len(lines) == 1:
+        return f"{ts_prefix}[{role_label}] {lines[0]}"
+
+    first = f"{ts_prefix}[{role_label}] {lines[0]}"
+    rest = "\n".join(f"  {line}" for line in lines[1:])
+    return f"{first}\n{rest}"
 
 
 def _register_builtin_tools(registry: ToolRegistry, settings: Settings, *, shell_confirm_callback=None) -> None:
@@ -309,3 +461,91 @@ def tui(
     from .ui.tui import run_tui
 
     run_tui(resume=resume, workspace_root=workspace_root)
+
+
+@app.command("log")
+def log_view(
+    session: str | None = typer.Option(None, "--session", help="Session id to inspect."),
+    workspace_root: Path | None = typer.Option(None, help="Workspace root (sandbox)."),
+    tail: int = typer.Option(200, "--tail", min=1, max=5000, help="Show only the last N messages."),
+    follow: bool = typer.Option(False, "--follow", "-f", help="Follow transcript in real time."),
+    poll_ms: int = typer.Option(400, "--poll-ms", min=100, max=5000, help="Polling interval in follow mode."),
+    include_events: bool = typer.Option(
+        True,
+        "--events/--no-events",
+        help="Include runtime events such as tool_call/tool_result.",
+    ),
+    include_system: bool = typer.Option(
+        False,
+        "--include-system/--no-include-system",
+        help="Include system messages in log output.",
+    ),
+) -> None:
+    """Show transcript log in a dedicated terminal view."""
+
+    settings = Settings.load(workspace_root=workspace_root)
+    if workspace_root is not None:
+        settings.workspace_root = workspace_root
+
+    transcript_dir = settings.resolved_transcript_dir()
+    defaults = default_sessions(
+        workspace_root=settings.workspace_root,
+        transcript_dir=transcript_dir,
+    )
+
+    session_id = session or _most_recent_session_id(transcript_dir) or defaults.repl
+    session_info = open_session(transcript_dir=transcript_dir, session_id=session_id)
+    path = session_info.path
+
+    if not path.exists():
+        print(f"No transcript found for session_id={session_id}")
+        print(f"transcript_dir={transcript_dir}")
+        return
+
+    lines = _iter_rendered_log_lines(
+        path,
+        include_system=include_system,
+        include_events=include_events,
+    )
+
+    if not lines:
+        print(f"Transcript is empty for session_id={session_id}")
+        print(f"transcript={path}")
+        if not follow:
+            return
+
+    shown = lines[-tail:]
+    print(
+        f"GGbot log  session_id={session_id}  total={len(lines)}  showing={len(shown)}"
+    )
+    print(f"transcript={path}")
+    print("-" * 72)
+    for item in shown:
+        print(item)
+
+    if not follow:
+        return
+
+    print("-" * 72)
+    print("Following... Press Ctrl+C to stop.")
+    sleep_s = poll_ms / 1000.0
+
+    with path.open("r", encoding="utf-8") as f:
+        f.seek(0, 2)
+        try:
+            while True:
+                line = f.readline()
+                if not line:
+                    time.sleep(sleep_s)
+                    continue
+
+                rendered = _parse_rendered_event_line(
+                    line,
+                    include_system=include_system,
+                    include_events=include_events,
+                )
+                if rendered is None:
+                    continue
+                print(rendered)
+        except KeyboardInterrupt:
+            print("\nStopped following.")

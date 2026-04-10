@@ -22,7 +22,7 @@ from ..core.session_meta import (
     set_title as set_session_title,
 )
 from ..core.sessions import default_sessions
-from ..core.query_loop import run_query
+from ..core.agent_loop import run_query
 from ..core.transcript import Transcript, clear_transcript, load_model_messages, open_session
 from ..core.types import ChatMessage
 from ..providers.openai_client import OpenAICompatibleClient
@@ -290,7 +290,6 @@ class GGbotTui(App[None]):
                 continue
 
             tool_calls = msg.tool_calls
-            expected = [tc.id for tc in tool_calls]
             provided: set[str] = set()
 
             j = i + 1
@@ -317,7 +316,7 @@ class GGbotTui(App[None]):
     def _render_top_left(self) -> None:
         pet_block = _format_pet_block(self._pet)
         logo = _boxed_logo(_GYQ666_LOGO_LINES)
-        text = f"{logo}\n"
+        text = f"{logo}"
         # text = f"{logo}\n\n{pet_block}\n\nCurrent pet: {self._pet.species}\nUse /pets to change."
         self.query_one('#top_left', Static).update(text)
 

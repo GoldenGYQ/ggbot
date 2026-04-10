@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ggbot.core.query_loop import run_query
+from ggbot.core.agent_loop import run_query
 from ggbot.core.transcript import Transcript
 from ggbot.core.types import ChatMessage, ToolCall, ToolFunction, ToolSpec
 from ggbot.tools.registry import ToolRegistry
