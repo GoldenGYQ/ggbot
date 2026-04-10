@@ -2,11 +2,30 @@
 
 A minimal, Claude-Code-inspired CLI agent.
 
-## Install (editable)
+## Quick Start (uv, recommended)
 
 From repo root:
 
-- `python -m pip install -e ./python-mvp[dev]`
+```powershell
+uv venv .venv
+.\.venv\Scripts\Activate.ps1
+uv sync --extra dev
+```
+
+Run commands via `uv run` (or run directly after activation):
+
+- `uv run ggbot --help`
+- `uv run ggbot --debug repl`
+- `uv run ggbot chat "hello"`
+- `uv run ggbot repl`
+- `uv run ggbot tui`
+- `uv run pytest`
+
+## Install (pip editable, alternative)
+
+From repo root:
+
+- `python -m pip install -e .[dev]`
 
 ## Run
 
@@ -26,7 +45,7 @@ GGBot 会按优先级读取配置：
 
 最常用的是把 Key 放到 `.env` 或 `config.toml`。
 
-仓库里也提供了一个可直接复制的示例文件：`python-mvp/.env.example`。
+仓库里也提供了一个可直接复制的示例文件：`./.env.example`。
 
 ### 环境变量
 
@@ -42,7 +61,7 @@ Transcript:
 
 在仓库根目录创建 `./.env`：
 
-（你也可以直接从 `python-mvp/.env.example` 复制一份。）
+（你也可以直接从 `./.env.example` 复制一份。）
 
 ```
 OPENAI_API_KEY=sk-xxxx

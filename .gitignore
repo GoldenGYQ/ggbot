@@ -1,0 +1,13 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+.ggbot/config.toml
+.ggbot/.env
+
+# Local transcripts and runtime state
+.ggbot/transcripts/
+
+# Python caches
+__pycache__/
+*.py[cod]
