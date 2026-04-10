@@ -35,6 +35,16 @@ From repo root:
 - `ggbot repl`
 - `ggbot tui`
 
+In REPL, you can create project folders inside the current workspace via:
+
+- `/workspace <path>`
+- `/workspace_ls [path]` (list files/dirs under workspace, default current root)
+
+In TUI:
+
+- `/clear` asks for confirmation, then clears current session history.
+- `/clear-screen` only clears visible screen output.
+
 ## Env
 
 GGBot 会按优先级读取配置：

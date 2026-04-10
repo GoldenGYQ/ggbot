@@ -52,6 +52,10 @@ class Transcript:
                     continue
 
 
+def clear_transcript(transcript: Transcript) -> None:
+    transcript.path.write_text("", encoding="utf-8")
+
+
 def open_session(*, transcript_dir: Path, session_id: str) -> SessionInfo:
     # Prevent path traversal / invalid filenames.
     # Session ids are used as filenames under transcript_dir.

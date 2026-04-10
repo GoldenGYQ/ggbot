@@ -23,13 +23,14 @@ from ..core.session_meta import (
 )
 from ..core.sessions import default_sessions
 from ..core.query_loop import run_query
-from ..core.transcript import Transcript, load_model_messages, open_session
+from ..core.transcript import Transcript, clear_transcript, load_model_messages, open_session
 from ..core.types import ChatMessage
 from ..providers.openai_client import OpenAICompatibleClient
 from ..tools.file_tools import make_file_tools
 from ..tools.jobs_tool import make_job_tools
 from ..tools.registry import ToolRegistry
 from ..tools.shell_tool import make_shell_tool
+from ..tools.workspace_tools import make_workspace_tools
 from .pets import PetBones, Species, list_species, render_sprite
 
 
@@ -63,6 +64,7 @@ def _register_builtin_tools(
     shell_confirm_callback=None,
 ) -> None:
     file_read, file_write = make_file_tools(workspace_root=settings.workspace_root)
+    create_workspace, workspace_list = make_workspace_tools(workspace_root=settings.workspace_root)
     shell_run = make_shell_tool(
         workspace_root=settings.workspace_root,
         confirm=settings.shell_confirm,
@@ -72,7 +74,7 @@ def _register_builtin_tools(
     )
     shell_jobs, shell_tail, shell_kill = make_job_tools(workspace_root=settings.workspace_root)
 
-    for fn in (file_read, file_write, shell_run, shell_jobs, shell_tail, shell_kill):
+    for fn in (file_read, file_write, create_workspace, workspace_list, shell_run, shell_jobs, shell_tail, shell_kill):
         reg = getattr(fn, "__ggbot_tool__")
         registry.register(reg.spec, reg.handler)
 
@@ -96,11 +98,11 @@ class _Runtime:
 
 
 _GYQ666_LOGO_LINES = [
-    " █████  █     █  █████   █████   █████   █████ ",
-    "█     █  █   █  █     █ █     █ █     █ █     █",
-    "█        █ █ █   █     █ ██████  ██████  ██████ ",
-    "█     █   ███    █     █ █     █ █     █ █     █",
-    " █████     █      █████   █████   █████   █████ ",
+    " █████  █     █   █████     █████   █████   █████ ",
+    "█       █     █  █     █   █       █       █      ",
+    "█   ███  █   █   █     █   ██████  ██████  ██████ ",
+    "█     █   ███    █     █   █     █ █     █ █     █",
+    " █████     █      ███████   █████   █████   █████ ",
 ]
 
 
@@ -132,7 +134,8 @@ def _format_pet_block(bones: PetBones) -> str:
 
 WELCOME_RIGHT = """Tips for getting started
 
-- /clear to clear the screen
+- /clear to clear current session history
+- /clear-screen to clear visible screen only
 - /help for commands
 - /exit to quit
 """
@@ -176,6 +179,7 @@ class GGbotTui(App[None]):
         self._assistant_stream_buffer: str | None = None
         self._pet: PetBones = PetBones(species='duck')
         self._pending_shell_confirm: tuple[str, Event, dict[str, str | None]] | None = None
+        self._pending_clear_confirm: bool = False
         self._busy: bool = False
         self._transcript_dir = self.runtime.settings.resolved_transcript_dir()
         self._session_meta: dict[str, SessionMeta] = load_session_meta(self._transcript_dir)
@@ -313,7 +317,8 @@ class GGbotTui(App[None]):
     def _render_top_left(self) -> None:
         pet_block = _format_pet_block(self._pet)
         logo = _boxed_logo(_GYQ666_LOGO_LINES)
-        text = f"{logo}\n\n{pet_block}\n\nCurrent pet: {self._pet.species}\nUse /pets to change."
+        text = f"{logo}\n"
+        # text = f"{logo}\n\n{pet_block}\n\nCurrent pet: {self._pet.species}\nUse /pets to change."
         self.query_one('#top_left', Static).update(text)
 
     def _render_history_bootstrap(self) -> None:
@@ -357,12 +362,23 @@ class GGbotTui(App[None]):
             return True
 
         if cmd == "/clear":
+            self._pending_clear_confirm = True
+            self._append_system("Confirm clear current session history? Type y or n.")
+            self.query_one(Input).placeholder = "Confirm /clear? Type y or n"
+            self.query_one(Input).focus()
+            self._render_status()
+            return True
+
+        if cmd == "/clear-screen":
             self.query_one(RichLog).clear()
             self.query_one("#stream", Static).update("")
+            self._assistant_stream_buffer = None
+            self._render_history_bootstrap()
             return True
 
         if cmd == "/help":
-            self._append_system("Commands: /clear, /help, /exit, /pets, /session")
+            self._append_system("Commands: /clear, /clear-screen, /help, /exit, /pets, /session")
+            self._append_system("/clear will clear transcript + in-memory messages for current session.")
             return True
 
         if cmd == "/session":
@@ -521,6 +537,25 @@ class GGbotTui(App[None]):
         self._render_status()
         self._append_system(f"Switched session to {session_id} (loaded {len(messages)} messages).")
 
+    def _clear_current_session_history(self) -> None:
+        if self._busy:
+            self._append_system("Busy running a query; wait before clearing history.")
+            return
+
+        clear_transcript(self.runtime.transcript)
+        self.runtime.messages = []
+        _ensure_message_bootstrap(self.runtime.messages, self.runtime.transcript)
+
+        self._session_meta[self.runtime.session_id] = SessionMeta(session_id=self.runtime.session_id)
+        save_session_meta(self._transcript_dir, self._session_meta)
+
+        self.query_one(RichLog).clear()
+        self.query_one("#stream", Static).update("")
+        self._assistant_stream_buffer = None
+        self._render_history_bootstrap()
+        self._render_status()
+        self._append_system(f"Cleared current session history: {self.runtime.session_id}")
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.rstrip("\n")
         self.query_one(Input).value = ""
@@ -547,6 +582,24 @@ class GGbotTui(App[None]):
             self.query_one(Input).placeholder = "Type a message. Use /help."
             self._render_status()
             ev.set()
+            return
+
+        if self._pending_clear_confirm:
+            answer = text.strip().lower()
+            if answer in {"y", "yes"}:
+                self._pending_clear_confirm = False
+                self.query_one(Input).placeholder = "Type a message. Use /help."
+                self._clear_current_session_history()
+                return
+            if answer in {"n", "no"}:
+                self._pending_clear_confirm = False
+                self.query_one(Input).placeholder = "Type a message. Use /help."
+                self._append_system("Cancelled /clear.")
+                self._render_status()
+                return
+
+            self._append_system("Please answer y or n.")
+            self.query_one(Input).placeholder = "Confirm /clear? Type y or n"
             return
 
         if text.startswith("/"):

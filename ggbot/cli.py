@@ -13,6 +13,7 @@ from ggbot.tools.file_tools import make_file_tools
 from ggbot.tools.jobs_tool import make_job_tools
 from ggbot.tools.registry import ToolRegistry
 from ggbot.tools.shell_tool import make_shell_tool
+from ggbot.tools.workspace_tools import make_workspace_tools
 from ggbot.core.transcript import Transcript, load_model_messages, open_session
 from ggbot.core.types import ChatMessage
 
@@ -60,6 +61,7 @@ def _print_tool_output(name: str, output: str) -> None:
 
 def _register_builtin_tools(registry: ToolRegistry, settings: Settings, *, shell_confirm_callback=None) -> None:
     file_read, file_write = make_file_tools(workspace_root=settings.workspace_root)
+    create_workspace, workspace_list = make_workspace_tools(workspace_root=settings.workspace_root)
     shell_run = make_shell_tool(
         workspace_root=settings.workspace_root,
         confirm=settings.shell_confirm,
@@ -69,7 +71,7 @@ def _register_builtin_tools(registry: ToolRegistry, settings: Settings, *, shell
     )
     shell_jobs, shell_tail, shell_kill = make_job_tools(workspace_root=settings.workspace_root)
 
-    for fn in (file_read, file_write, shell_run, shell_jobs, shell_tail, shell_kill):
+    for fn in (file_read, file_write, create_workspace, workspace_list, shell_run, shell_jobs, shell_tail, shell_kill):
         reg = getattr(fn, "__ggbot_tool__")
         registry.register(reg.spec, reg.handler)
 
@@ -117,6 +119,30 @@ def _handle_slash(line: str, *, registry: ToolRegistry, transcript: Transcript, 
         transcript.append("model_message", sys_msg.model_dump(exclude_none=True))
         return True
 
+    if cmd == "/workspace" and len(parts) >= 2:
+        path = parts[1]
+        try:
+            out = registry.call("create_workspace", {"path": path})
+        except Exception as e:
+            out = f"Tool error: {type(e).__name__}: {e}"
+        print(out)
+        sys_msg = ChatMessage(role="system", content=f"/workspace {path}\n\n{out}")
+        messages.append(sys_msg)
+        transcript.append("model_message", sys_msg.model_dump(exclude_none=True))
+        return True
+
+    if cmd in {"/workspace_ls", "/ws"}:
+        path = parts[1] if len(parts) >= 2 else "."
+        try:
+            out = registry.call("workspace_list", {"path": path})
+        except Exception as e:
+            out = f"Tool error: {type(e).__name__}: {e}"
+        print(out)
+        sys_msg = ChatMessage(role="system", content=f"/workspace_ls {path}\n\n{out}")
+        messages.append(sys_msg)
+        transcript.append("model_message", sys_msg.model_dump(exclude_none=True))
+        return True
+
     if cmd == "/shell" and len(parts) >= 2:
         cmdline = line.strip()[len("/shell") :].strip()
         try:
@@ -130,7 +156,10 @@ def _handle_slash(line: str, *, registry: ToolRegistry, transcript: Transcript, 
         return True
 
     if cmd == "/help":
-        print("Slash commands: /read <path>, /write <path> <content>, /shell <cmd>, /exit")
+        print(
+            "Slash commands: /read <path>, /write <path> <content>, /workspace <path>, "
+            "/workspace_ls [path], /shell <cmd>, /exit"
+        )
         return True
 
     print("Unknown command. Use /help")

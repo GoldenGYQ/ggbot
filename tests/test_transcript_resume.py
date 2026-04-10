@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from ggbot.core.transcript import Transcript, load_model_messages
+from ggbot.core.transcript import Transcript, clear_transcript, load_model_messages
 from ggbot.core.transcript import open_session
 from ggbot.core.types import ChatMessage
 
@@ -20,3 +20,13 @@ def test_transcript_roundtrip(tmp_path: Path) -> None:
 def test_open_session_rejects_invalid_session_id(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         open_session(transcript_dir=tmp_path, session_id="../escape")
+
+
+def test_clear_transcript_removes_history(tmp_path: Path) -> None:
+    t = Transcript(path=tmp_path / "s.jsonl")
+    t.append("model_message", ChatMessage(role="user", content="hi").model_dump(exclude_none=True))
+    assert load_model_messages(t)
+
+    clear_transcript(t)
+
+    assert load_model_messages(t) == []
