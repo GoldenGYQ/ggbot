@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     # Tool loop safety (prevents runaway repeated tool calls)
     max_tool_calls: int = Field(default=30, alias="GGBOT_MAX_TOOL_CALLS")
-    max_tool_calls_per_tool: int = Field(default=12, alias="GGBOT_MAX_TOOL_CALLS_PER_TOOL")
+    max_tool_calls_per_tool: int = Field(default=20, alias="GGBOT_MAX_TOOL_CALLS_PER_TOOL")
     max_tool_calls_same_args: int = Field(default=3, alias="GGBOT_MAX_TOOL_CALLS_SAME_ARGS")
 
     # Transcript

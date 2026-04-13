@@ -22,6 +22,7 @@ from ggbot.tools.shell_stream_tool import make_shell_stream_tool
 from ggbot.tools.status_tool import make_status_tool
 from ggbot.tools.http_tools import make_http_tools
 from ggbot.tools.workspace_tools import make_workspace_tools
+from ggbot.tools.time_tools import make_time_tools
 from ggbot.core.transcript import Transcript, load_model_messages, open_session
 from ggbot.core.types import ChatMessage
 
@@ -252,6 +253,7 @@ def _register_builtin_tools(registry: ToolRegistry, settings: Settings, *, shell
     status_update = make_status_tool()
     shell_stream = make_shell_stream_tool(workspace_root=settings.workspace_root)
     http_get, duckduckgo_search, news_search = make_http_tools()
+    get_current_time, get_date_info, get_timezone_list = make_time_tools()
 
     registry.register_all(
         (
@@ -268,6 +270,9 @@ def _register_builtin_tools(registry: ToolRegistry, settings: Settings, *, shell
             http_get,
             duckduckgo_search,
             news_search,
+            get_current_time,
+            get_date_info,
+            get_timezone_list,
         )
     )
 
@@ -398,7 +403,7 @@ def chat(
     prompt_manager = PromptManager(settings=settings)
     system_message = prompt_manager.build_system_message(
         mode="chat",
-        tool_names=[spec.name for spec in registry.specs()],
+        tool_specs=registry.specs(),
     )
     _ensure_message_bootstrap(messages, transcript, system_message=system_message)
 
@@ -462,7 +467,7 @@ def repl(
     prompt_manager = PromptManager(settings=settings)
     system_message = prompt_manager.build_system_message(
         mode="repl",
-        tool_names=[spec.name for spec in registry.specs()],
+        tool_specs=registry.specs(),
     )
     _ensure_message_bootstrap(messages, transcript, system_message=system_message)
 

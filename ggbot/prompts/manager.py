@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..core.config import Settings
-from ..core.types import ChatMessage
+from ..core.types import ChatMessage, ToolSpec
 from .builder import PromptBuilder
 from .repository import PromptRepository
 from .types import PromptMode, RenderedPrompt, PromptContext
@@ -24,15 +24,15 @@ class PromptManager:
     def prompt_dir(self) -> Path:
         return self._settings.prompt_dir or (self._settings.workspace_root / ".ggbot" / "prompts")
 
-    def build_rendered_prompt(self, *, mode: PromptMode, tool_names: list[str]) -> RenderedPrompt:
+    def build_rendered_prompt(self, *, mode: PromptMode, tool_specs: list[ToolSpec]) -> RenderedPrompt:
         profile = self._repository.load_profile(self.profile_name)
         context = PromptContext(
             mode=mode,
             workspace_root=self._settings.workspace_root,
-            tool_names=tool_names,
+            tool_specs=tool_specs,
         )
         return self._builder.render(profile=profile, context=context)
 
-    def build_system_message(self, *, mode: PromptMode, tool_names: list[str]) -> ChatMessage:
-        rendered = self.build_rendered_prompt(mode=mode, tool_names=tool_names)
+    def build_system_message(self, *, mode: PromptMode, tool_specs: list[ToolSpec]) -> ChatMessage:
+        rendered = self.build_rendered_prompt(mode=mode, tool_specs=tool_specs)
         return ChatMessage(role="system", content=rendered.content)

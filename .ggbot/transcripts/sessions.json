@@ -1,16 +1,9 @@
 {
-  "c4f2f3cd22344e759b2c23e098b71cd7": {
-    "created_ms": 0,
-    "title": "目录内容",
-    "title_gen_turn": 1,
-    "updated_ms": 1776046197082,
-    "user_turns": 13
-  },
   "repl": {
-    "created_ms": 1775216658781,
-    "title": "Session 5",
+    "created_ms": 0,
+    "title": "你好",
     "title_gen_turn": 1,
-    "updated_ms": 1775216660347,
-    "user_turns": 1
+    "updated_ms": 1776067704356,
+    "user_turns": 6
   }
 }

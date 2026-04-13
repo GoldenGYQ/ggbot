@@ -1,6 +1,0 @@
-{"ts_ms": 1775213336465, "type": "model_message", "data": {"role": "system", "content": "You are GGbot, a helpful coding CLI agent. Use available tools when needed. When using tools, be concise and safe."}}
-{"ts_ms": 1775213371247, "type": "model_message", "data": {"role": "user", "content": "打开工作区的cli。py 你先查找具体位置"}}
-{"ts_ms": 1775213374378, "type": "model_message", "data": {"role": "assistant", "content": "我来帮你查找工作区中的 cli.py 文件位置。", "tool_calls": [{"id": "call_00_6vjp0gNDbsQwmQuZxCz54uPO", "type": "function", "function": {"name": "shell_run", "arguments": "{\"command\": \"find . -name \\\"cli.py\\\" -type f 2>/dev/null\"}"}}]}}
-{"ts_ms": 1775213374380, "type": "tool_call", "data": {"id": "call_00_6vjp0gNDbsQwmQuZxCz54uPO", "name": "shell_run", "arguments": {"command": "find . -name \"cli.py\" -type f 2>/dev/null"}}}
-{"ts_ms": 1775213579821, "type": "model_message", "data": {"role": "tool", "content": "Cancelled by user.", "tool_call_id": "call_00_6vjp0gNDbsQwmQuZxCz54uPO", "name": "shell_run"}}
-{"ts_ms": 1775213579822, "type": "tool_result", "data": {"id": "call_00_6vjp0gNDbsQwmQuZxCz54uPO", "name": "shell_run", "content_len": 18}}

@@ -38,6 +38,7 @@ from ..tools.shell_stream_tool import make_shell_stream_tool
 from ..tools.status_tool import make_status_tool
 from ..tools.http_tools import make_http_tools
 from ..tools.workspace_tools import make_workspace_tools
+from ..tools.time_tools import make_time_tools
 from .pets import PetBones, Species, list_species, render_sprite
 
 
@@ -83,6 +84,7 @@ def _register_builtin_tools(
     status_update = make_status_tool()
     shell_stream = make_shell_stream_tool(workspace_root=settings.workspace_root)
     http_get, duckduckgo_search, news_search = make_http_tools()
+    get_current_time, get_date_info, get_timezone_list = make_time_tools()
 
     registry.register_all(
         (
@@ -99,6 +101,9 @@ def _register_builtin_tools(
             http_get,
             duckduckgo_search,
             news_search,
+            get_current_time,
+            get_date_info,
+            get_timezone_list,
         )
     )
 
@@ -823,7 +828,7 @@ def run_tui(*, resume: str | None = None, workspace_root: Path | None = None) ->
     prompt_manager = PromptManager(settings=settings)
     system_message = prompt_manager.build_system_message(
         mode="tui",
-        tool_names=[spec.name for spec in registry.specs()],
+        tool_specs=registry.specs(),
     )
 
     messages = load_model_messages(transcript)

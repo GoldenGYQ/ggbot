@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from ..core.types import ToolSpec
+
 
 PromptMode = Literal["chat", "repl", "tui"]
 
@@ -12,7 +14,7 @@ PromptMode = Literal["chat", "repl", "tui"]
 class PromptContext:
     mode: PromptMode
     workspace_root: Path
-    tool_names: list[str]
+    tool_specs: list[ToolSpec]
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,0 @@
-{"ts_ms": 1775212518274, "type": "model_message", "data": {"role": "system", "content": "You are GGbot, a helpful coding CLI agent. Use available tools when needed. When using tools, be concise and safe."}}
-{"ts_ms": 1775212522608, "type": "model_message", "data": {"role": "user", "content": "你好"}}
-{"ts_ms": 1775212524857, "type": "model_message", "data": {"role": "assistant", "content": "你好！我是 GGbot，一个乐于助人的编程 CLI 助手。我可以帮您处理文件操作、运行命令等任务。有什么我可以为您做的吗？"}}
-{"ts_ms": 1775212531383, "type": "model_message", "data": {"role": "user", "content": "你都能干啥"}}
-{"ts_ms": 1775212536862, "type": "model_message", "data": {"role": "assistant", "content": "我可以帮您做以下几类事情：\n\n## 文件操作\n- 读取文件内容（支持 UTF-8 编码）\n- 创建或修改文件（自动创建所需目录）\n\n## 系统命令\n- 运行 shell 命令（在安全的工作空间内）\n- 执行脚本、编译代码、运行程序等\n\n## 编程相关\n- 查看代码文件\n- 创建项目结构\n- 运行测试和构建\n- 调试问题\n\n## 其他\n- 处理文本数据\n- 分析文件内容\n- 自动化任务\n\n例如，我可以：\n- 帮您查看当前目录的文件列表\n- 读取和分析代码文件\n- 运行 Python 脚本或其他程序\n- 创建新的项目文件\n- 调试错误信息\n\n您有什么具体的任务需要帮助吗？"}}
