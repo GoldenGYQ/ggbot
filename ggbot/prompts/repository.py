@@ -141,6 +141,51 @@ def _default_layers() -> list[PromptLayer]:
                 "- Suggest concrete fixes for common problems"
             ),
         ),
+        PromptLayer(
+            name="thinking_format",
+            template=(
+                "# Thinking and Reasoning Format\n"
+                "When responding to user requests, follow this structured thinking format:\n\n"
+                "## Standard Thinking Format (Recommended)\n"
+                "```\n"
+                "思考：<Your step-by-step reasoning process in Chinese>\n"
+                "\n"
+                "回答：<Your final answer or action plan>\n"
+                "```\n\n"
+                "## Alternative Formats (Choose one)\n"
+                "```\n"
+                "Thinking: <Your step-by-step reasoning process in English>\n"
+                "\n"
+                "Answer: <Your final answer or action plan>\n"
+                "```\n\n"
+                "```\n"
+                "Reasoning: <Your logical analysis>\n"
+                "\n"
+                "Response: <Your final response>\n"
+                "```\n\n"
+                "## XML Format (For structured output)\n"
+                "```\n"
+                "<thinking>\n"
+                "Your internal reasoning process\n"
+                "</thinking>\n"
+                "<answer>\n"
+                "Your final answer\n"
+                "</answer>\n"
+                "```\n\n"
+                "## Thinking Content Guidelines\n"
+                "1. **Be thorough but concise**: Include key reasoning steps without unnecessary detail\n"
+                "2. **Show your work**: Explain how you arrived at conclusions\n"
+                "3. **Consider alternatives**: Mention other approaches you considered and why you rejected them\n"
+                "4. **Identify risks**: Note potential issues or edge cases\n"
+                "5. **Plan next steps**: Outline what you'll do if your approach succeeds or fails\n\n"
+                "## When to Use Thinking Format\n"
+                "- Complex problem-solving tasks\n"
+                "- Multi-step operations\n"
+                "- When explaining technical decisions\n"
+                "- When safety considerations are important\n"
+                "- When teaching or explaining concepts"
+            ),
+        ),
     ]
 
 

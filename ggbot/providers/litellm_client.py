@@ -83,7 +83,18 @@ class LiteLLMClient:
         tool_calls: dict[int, ToolCall] = {}
 
         # LiteLLM expects OpenAI-style dict messages.
-        payload_messages = [m.model_dump(exclude_none=True) for m in messages]
+        # Convert thinking messages to system role for compatibility with APIs
+        # that don't support the 'thinking' role (e.g., DeepSeek)
+        payload_messages = []
+        for m in messages:
+            msg_dict = m.model_dump(exclude_none=True)
+            if msg_dict.get("role") == "thinking":
+                # Convert thinking to system role for API compatibility
+                msg_dict["role"] = "system"
+                # Add prefix to indicate this was originally thinking content
+                if "content" in msg_dict:
+                    msg_dict["content"] = f"[Thinking] {msg_dict['content']}"
+            payload_messages.append(msg_dict)
 
         # Use streaming so we can surface incremental text.
         try:

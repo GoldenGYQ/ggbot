@@ -10,6 +10,10 @@ def test_load_reads_toml_when_env_missing(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    # Also delete GGbot-specific env vars that might be set by .env file or other tests
+    monkeypatch.delenv("GGBOT_MAX_TURNS", raising=False)
+    monkeypatch.delenv("GGBOT_THINKING_ENABLED", raising=False)
+    monkeypatch.delenv("GGBOT_PROMPT_PROFILE", raising=False)
 
     (tmp_path / ".ggbot").mkdir()
     (tmp_path / ".ggbot" / "config.toml").write_text(

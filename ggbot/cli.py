@@ -170,6 +170,26 @@ def _render_event_line(
             chunk = chunk[:200] + "…"
         return f"{ts_prefix}{COLOR_YELLOW}[EVENT]{COLOR_RESET} {COLOR_BLUE}tool_stream{COLOR_RESET} name={COLOR_CYAN}{name}{COLOR_RESET} chunk={COLOR_DIM}{chunk!r}{COLOR_RESET}"
 
+    if event_type == "turn_info":
+        max_turns = int(data.get("max_turns") or 0)
+        start_turn = int(data.get("start_turn") or 0)
+        return f"{ts_prefix}{COLOR_YELLOW}[EVENT]{COLOR_RESET} {COLOR_GREEN}turn_info{COLOR_RESET} max_turns={COLOR_CYAN}{max_turns}{COLOR_RESET} start_turn={COLOR_CYAN}{start_turn}{COLOR_RESET}"
+
+    if event_type == "turn_update":
+        current_turn = int(data.get("current_turn") or 0)
+        max_turns = int(data.get("max_turns") or 0)
+        progress = f"{current_turn}/{max_turns}"
+        progress_color = COLOR_GREEN if current_turn < max_turns else COLOR_YELLOW
+        return f"{ts_prefix}{COLOR_YELLOW}[EVENT]{COLOR_RESET} {COLOR_GREEN}turn_update{COLOR_RESET} turn={progress_color}{progress}{COLOR_RESET}"
+
+    if event_type == "turn_complete":
+        turns_used = int(data.get("turns_used") or 0)
+        max_turns = int(data.get("max_turns") or 0)
+        completed = bool(data.get("completed"))
+        status = "completed" if completed else "max_turns_reached"
+        status_color = COLOR_GREEN if completed else COLOR_YELLOW
+        return f"{ts_prefix}{COLOR_YELLOW}[EVENT]{COLOR_RESET} {COLOR_GREEN}turn_complete{COLOR_RESET} turns_used={COLOR_CYAN}{turns_used}{COLOR_RESET}/{COLOR_CYAN}{max_turns}{COLOR_RESET} status={status_color}{status}{COLOR_RESET}"
+
     return None
 
 
@@ -236,6 +256,8 @@ def _render_log_message(msg: ChatMessage, *, ts_ms: int | None = None) -> str:
         role_color = COLOR_MAGENTA
     elif msg.role == "tool":
         role_color = COLOR_BLUE
+    elif msg.role == "thinking":
+        role_color = COLOR_YELLOW + COLOR_DIM  # Dim yellow for thinking
     else:
         role_color = COLOR_WHITE
 
@@ -372,6 +394,11 @@ def chat(
         "--show-tools/--no-show-tools",
         help="Print tool outputs (e.g., file_read contents) to the terminal.",
     ),
+    thinking: bool = typer.Option(
+        None,
+        "--thinking/--no-thinking",
+        help="Enable thinking/reasoning output. Overrides config setting.",
+    ),
 ):
     settings = Settings.load(workspace_root=workspace_root)
     if workspace_root is not None:
@@ -387,6 +414,11 @@ def chat(
 
     messages = load_model_messages(transcript)
 
+    # Determine thinking setting: command line overrides config
+    thinking_enabled = settings.thinking_enabled
+    if thinking is not None:
+        thinking_enabled = thinking
+
     # 使用新的ToolManager
     tool_manager = create_tool_manager(settings)
     registry = tool_manager.registry
@@ -395,6 +427,7 @@ def chat(
     system_message = prompt_manager.build_system_message(
         mode="chat",
         tool_specs=registry.specs(),
+        thinking_enabled=thinking_enabled,
     )
     _ensure_message_bootstrap(messages, transcript, system_message=system_message)
 
@@ -421,6 +454,7 @@ def chat(
                 max_tool_calls_per_tool=settings.max_tool_calls_per_tool,
                 max_tool_calls_same_args=settings.max_tool_calls_same_args,
             ),
+            thinking_enabled=thinking_enabled,
         )
         print("")
         print(f"\n[session_id={session_id}] transcript={transcript.path}")
@@ -437,6 +471,11 @@ def repl(
         "--show-tools/--no-show-tools",
         help="Print tool outputs (e.g., file_read contents) to the terminal.",
     ),
+    thinking: bool = typer.Option(
+        None,
+        "--thinking/--no-thinking",
+        help="Enable thinking/reasoning output. Overrides config setting.",
+    ),
 ):
     settings = Settings.load(workspace_root=workspace_root)
     if workspace_root is not None:
@@ -452,6 +491,11 @@ def repl(
 
     messages = load_model_messages(transcript)
 
+    # Determine thinking setting: command line overrides config
+    thinking_enabled = settings.thinking_enabled
+    if thinking is not None:
+        thinking_enabled = thinking
+
     # 使用新的ToolManager
     tool_manager = create_tool_manager(settings)
     registry = tool_manager.registry
@@ -460,6 +504,7 @@ def repl(
     system_message = prompt_manager.build_system_message(
         mode="repl",
         tool_specs=registry.specs(),
+        thinking_enabled=thinking_enabled,
     )
     _ensure_message_bootstrap(messages, transcript, system_message=system_message)
 
@@ -504,6 +549,7 @@ def repl(
                     max_tool_calls_per_tool=settings.max_tool_calls_per_tool,
                     max_tool_calls_same_args=settings.max_tool_calls_same_args,
                 ),
+                thinking_enabled=thinking_enabled,
             )
             print("")
 

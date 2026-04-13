@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import traceback
+import re
 from dataclasses import dataclass
 from collections.abc import Callable
 import json
@@ -16,6 +17,7 @@ from .types import ChatMessage, ToolCall
 @dataclass(frozen=True)
 class QueryResult:
     messages: list[ChatMessage]
+    turns_used: int = 0
 
 
 @dataclass
@@ -61,6 +63,72 @@ class _ToolBudgetState:
             )
 
         return None
+
+
+def _extract_thinking_content(content: str) -> tuple[str | None, str]:
+    """Extract thinking content from model output.
+
+    Returns: (thinking_content, final_content)
+    """
+    if not content:
+        return None, ""
+
+    # Try different thinking patterns
+    patterns = [
+        # Chinese patterns
+        (r'思考[：:]\s*(.*?)\s*\n\s*\n\s*回答[：:]\s*(.*)', True),
+        (r'<thinking>(.*?)</thinking>\s*<answer>(.*?)</answer>', True),
+        (r'思考开始[：:]\s*(.*?)\s*思考结束', False),
+
+        # English patterns
+        (r'Reasoning[：:]\s*(.*?)\s*\n\s*\n\s*Answer[：:]\s*(.*)', True),
+        (r'Thinking[：:]\s*(.*?)\s*\n\s*\n\s*Answer[：:]\s*(.*)', True),
+        (r'Thinking[：:]\s*(.*?)\s*\n\s*\n\s*Response[：:]\s*(.*)', True),
+        (r'<reasoning>(.*?)</reasoning>\s*<answer>(.*?)</answer>', True),
+        (r'<reasoning>(.*?)</reasoning>\s*<response>(.*?)</response>', True),
+
+        # Generic patterns
+        (r'首先，让我思考一下[：:]\s*(.*?)\s*现在，我的回答是[：:]\s*(.*)', True),
+        (r'让我分析一下[：:]\s*(.*?)\s*基于以上分析，我的结论是[：:]\s*(.*)', True),
+    ]
+
+    for pattern, has_answer in patterns:
+        match = re.search(pattern, content, re.DOTALL)
+        if match:
+            if has_answer:
+                thinking = match.group(1).strip()
+                answer = match.group(2).strip()
+                return thinking, answer
+            else:
+                thinking = match.group(1).strip()
+                # Remove the thinking part from content
+                remaining = re.sub(pattern, '', content, flags=re.DOTALL).strip()
+                return thinking, remaining
+
+    # If no thinking pattern found, try to extract key reasoning
+    # Look for phrases that indicate reasoning
+    reasoning_indicators = [
+        "因为", "所以", "因此", "由于", "考虑到", "基于",
+        "because", "so", "therefore", "thus", "since", "given that",
+        "首先", "其次", "然后", "最后", "另外", "而且",
+        "first", "second", "then", "finally", "additionally", "moreover"
+    ]
+
+    # Simple heuristic: if content contains reasoning indicators,
+    # extract the first paragraph as thinking
+    lines = content.split('\n')
+    if len(lines) > 1:
+        # Check if first line or paragraph contains reasoning
+        first_part = lines[0].strip()
+        if any(indicator in first_part for indicator in reasoning_indicators):
+            # Use first paragraph as thinking, rest as answer
+            thinking = first_part
+            answer = '\n'.join(lines[1:]).strip()
+            if answer:
+                return thinking, answer
+
+    # No thinking content extracted
+    return None, content
 
 
 def _auto_heal_missing_tool_messages(*, messages: list[ChatMessage], transcript: Transcript) -> None:
@@ -181,6 +249,7 @@ def run_query(
     tool_printer: Callable[[str, str], None] | None = None,
     tool_context: ToolContext | None = None,
     tool_limits: ToolLimits | None = None,
+    thinking_enabled: bool = False,
 ) -> QueryResult:
     messages.append(ChatMessage(role="user", content=user_text))
     transcript.append("model_message", messages[-1].model_dump(exclude_none=True))
@@ -189,8 +258,21 @@ def run_query(
 
     turns = 0
     budget = _ToolBudgetState(tool_limits or ToolLimits())
+
+    # Record turn information to transcript
+    transcript.append("turn_info", {
+        "max_turns": max_turns,
+        "start_turn": 0,
+    })
+
     while turns < max_turns:
         turns += 1
+
+        # Record current turn to transcript
+        transcript.append("turn_update", {
+            "current_turn": turns,
+            "max_turns": max_turns,
+        })
 
         # Heal any interrupted history before sending to the provider.
         _sanitize_orphan_tool_messages(messages=messages)
@@ -240,9 +322,39 @@ def run_query(
             )
             break
 
+        # Parse thinking content if enabled
+        thinking_content = None
+        final_content = assistant_final.content or ""
+
+        if thinking_enabled and final_content:
+            # Try to extract thinking content from model output
+            # Common patterns for thinking/reasoning models:
+            # 1. Claude-style: 思考：...\n\n回答：...
+            # 2. OpenAI o1-style:  Reasoning: ...\n\nAnswer: ...
+            # 3. Custom format: <thinking>...</thinking><answer>...</answer>
+
+            thinking_content, final_content = _extract_thinking_content(final_content)
+
+            # If thinking was extracted, create a thinking message
+            if thinking_content:
+                thinking_msg = ChatMessage(
+                    role="thinking",
+                    content=thinking_content,
+                    thinking=thinking_content,
+                )
+                messages.append(thinking_msg)
+                transcript.append("model_message", thinking_msg.model_dump(exclude_none=True))
+                transcript.append(
+                    "thinking",
+                    {
+                        "content": thinking_content,
+                        "content_len": len(thinking_content),
+                    },
+                )
+
         assistant_msg = ChatMessage(
             role="assistant",
-            content=assistant_final.content or "",
+            content=final_content,
             tool_calls=assistant_final.tool_calls or None,
         )
         messages.append(assistant_msg)
@@ -262,7 +374,21 @@ def run_query(
                 budget=budget,
             )
 
-    return QueryResult(messages=messages)
+    # Record final turn information
+    # Check if we have tool calls from the last assistant message
+    last_has_tool_calls = False
+    for msg in reversed(messages):
+        if msg.role == "assistant":
+            last_has_tool_calls = bool(msg.tool_calls)
+            break
+
+    transcript.append("turn_complete", {
+        "turns_used": turns,
+        "max_turns": max_turns,
+        "completed": turns < max_turns or not last_has_tool_calls,
+    })
+
+    return QueryResult(messages=messages, turns_used=turns)
 
 
 def _execute_tool_call(

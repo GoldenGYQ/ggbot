@@ -91,6 +91,11 @@ class PromptBuilder:
         for layer in profile.layers:
             if not layer.enabled:
                 continue
+
+            # Skip thinking_format layer if thinking is not enabled
+            if layer.name == "thinking_format" and not context.thinking_enabled:
+                continue
+
             text = _render_template(layer.template, context).strip()
             if not text:
                 continue

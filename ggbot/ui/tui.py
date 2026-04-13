@@ -174,6 +174,10 @@ class GGbotTui(App[None]):
         if self.runtime.session_id not in self._session_meta:
             self._session_meta[self.runtime.session_id] = SessionMeta(session_id=self.runtime.session_id)
             save_session_meta(self._transcript_dir, self._session_meta)
+        # Thinking functionality
+        self._thinking_enabled: bool = self.runtime.settings.thinking_enabled
+        # Current conversation turn tracking
+        self._current_conversation_turn: int = 0
 
     def _push_status_update(self, text: str) -> None:
         text = (text or "").strip()
@@ -263,7 +267,22 @@ class GGbotTui(App[None]):
     def _render_status(self) -> None:
         meta = self._session_meta.get(self.runtime.session_id)
         title = (meta.title if meta else "Untitled").strip() or "Untitled"
-        header = f"{self.runtime.settings.openai_model} · {self.runtime.settings.workspace_root} · {title}"
+        thinking_status = "🧠" if self._thinking_enabled else ""
+
+        # Get current turn count from session meta
+        turn_count = meta.user_turns if meta else 0
+
+        # Calculate current turn in conversation (if available)
+        current_turn = 0
+        if hasattr(self, '_current_conversation_turn'):
+            current_turn = self._current_conversation_turn
+
+        max_turns = self.runtime.settings.max_turns
+        turn_info = f"T:{turn_count}/{max_turns}"
+        if current_turn > 0:
+            turn_info = f"T:{turn_count}/{max_turns} C:{current_turn}/{max_turns}"
+
+        header = f"{self.runtime.settings.openai_model} · {self.runtime.settings.workspace_root} · {title} {thinking_status} · {turn_info}"
         self.query_one("#status_line", Static).update(header)
 
     def _render_permission_prompt(self, command: str) -> None:
@@ -395,8 +414,16 @@ class GGbotTui(App[None]):
             return True
 
         if cmd == "/help":
-            self._append_system("Commands: /clear, /clear-screen, /help, /exit, /pets, /session")
+            self._append_system("Commands: /clear, /clear-screen, /help, /exit, /pets, /session, /thinking_toggle")
             self._append_system("/clear will clear transcript + in-memory messages for current session.")
+            self._append_system("/thinking_toggle will toggle thinking/reasoning output.")
+            return True
+
+        if cmd == "/thinking_toggle":
+            self._thinking_enabled = not self._thinking_enabled
+            status = "enabled" if self._thinking_enabled else "disabled"
+            self._append_system(f"Thinking/reasoning output {status}.")
+            self._render_status()
             return True
 
         if cmd == "/session":
@@ -639,6 +666,9 @@ class GGbotTui(App[None]):
         save_session_meta(self._transcript_dir, self._session_meta)
         # Generate / refresh title on turn 1, 51, 101, ... based on this turn's first message.
         should_title = (turn_no - 1) % 50 == 0
+        # Reset current conversation turn
+        self._current_conversation_turn = 0
+        self._render_status()
         self._run_query_in_worker(text, turn_no=turn_no, title_seed=text if should_title else None)
 
     @work(thread=True, exclusive=True)
@@ -688,7 +718,7 @@ class GGbotTui(App[None]):
                 transcript=self.runtime.transcript,
                 workspace_root=self.runtime.settings.workspace_root,
             )
-            run_query(
+            result = run_query(
                 client=self.runtime.client,
                 registry=self.runtime.registry,
                 transcript=self.runtime.transcript,
@@ -703,7 +733,10 @@ class GGbotTui(App[None]):
                     max_tool_calls_per_tool=self.runtime.settings.max_tool_calls_per_tool,
                     max_tool_calls_same_args=self.runtime.settings.max_tool_calls_same_args,
                 ),
+                thinking_enabled=self._thinking_enabled,
             )
+            # Update current conversation turn
+            self._current_conversation_turn = result.turns_used
         except Exception as e:
             def write_error() -> None:
                 self.query_one(RichLog).write(f"[error] {type(e).__name__}: {e}")
@@ -720,6 +753,8 @@ class GGbotTui(App[None]):
                     self._append_assistant_final(msg.content or "")
                     break
             self._busy = False
+            # Update status with final turn count
+            self._render_status()
 
         self.call_from_thread(finalize)
 

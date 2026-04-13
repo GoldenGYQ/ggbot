@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     shell_timeout_ms: int = Field(default=30_000, alias="GGBOT_SHELL_TIMEOUT_MS")
     shell_max_output_chars: int = Field(default=30_000, alias="GGBOT_SHELL_MAX_OUTPUT_CHARS")
 
+    # Thinking/Reasoning functionality
+    thinking_enabled: bool = Field(default=False, alias="GGBOT_THINKING_ENABLED")
+
     def resolved_transcript_dir(self) -> Path:
         if self.transcript_dir is not None:
             return self.transcript_dir
@@ -129,6 +132,8 @@ class Settings(BaseSettings):
         apply("GGBOT_SHELL_TIMEOUT_MS", "shell_timeout_ms", kind="int")
         apply("GGBOT_SHELL_MAX_OUTPUT_CHARS", "shell_max_output_chars", kind="int")
 
+        apply("GGBOT_THINKING_ENABLED", "thinking_enabled", kind="bool")
+
     @staticmethod
     def _apply_if_env_missing(settings: "Settings", env_name: str, attr: str, value: Any) -> None:
         if value is None:
@@ -187,6 +192,8 @@ class Settings(BaseSettings):
             "shell_max_output_chars",
             shell.get("max_output_chars"),
         )
+
+        cls._apply_if_env_missing(settings, "GGBOT_THINKING_ENABLED", "thinking_enabled", ggbot.get("thinking_enabled"))
 
 
 def _read_dotenv_file(path: Path) -> dict[str, str]:

@@ -15,6 +15,7 @@ class PromptContext:
     mode: PromptMode
     workspace_root: Path
     tool_specs: list[ToolSpec]
+    thinking_enabled: bool = False
 
 
 @dataclass(frozen=True)

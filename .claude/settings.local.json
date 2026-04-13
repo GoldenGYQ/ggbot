@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m ggbot.cli --help)"
+      "Bash(python -m ggbot.cli --help)",
+      "Bash(python -m pytest tests/test_config_load.py::test_load_reads_toml_when_env_missing -v -s)",
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(python -c \"from ggbot.core.config import Settings; s = Settings.load\\(\\); print\\(f'Thinking enabled: {s.thinking_enabled}'\\)\")",
+      "Bash(python test_deepseek_fix.py)"
     ]
   }
 }

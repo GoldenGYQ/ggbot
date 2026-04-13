@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-Role = Literal["system", "user", "assistant", "tool"]
+Role = Literal["system", "user", "assistant", "tool", "thinking"]
 
 
 class ToolFunction(BaseModel):
@@ -30,6 +30,9 @@ class ChatMessage(BaseModel):
     # tool message fields
     tool_call_id: str | None = None
     name: str | None = None
+
+    # thinking message fields (for models that support thinking/reasoning)
+    thinking: str | None = None
 
 
 class AssistantFinal(BaseModel):
@@ -64,3 +67,10 @@ class StreamToolCallDelta:
     tool_call_id: str | None
     name: str | None
     arguments_fragment: str | None
+
+
+@dataclass(frozen=True)
+class ThinkingConfig:
+    """Configuration for thinking/reasoning functionality."""
+    enabled: bool = False
+    # Future: could add thinking style, max_length, etc.
