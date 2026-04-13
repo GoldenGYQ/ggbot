@@ -14,7 +14,8 @@ from .status_tool import make_status_tool
 from .http_tools import make_http_tools
 from .workspace_tools import make_workspace_tools
 from .time_tools import make_time_tools
-from .search_tools import make_search_tools
+from .web import make_web_tools
+from ..core.workspace_manager import init_workspace_manager
 
 
 ShellConfirmCallback = Callable[[str], str | None]
@@ -60,6 +61,9 @@ class ToolManager:
         if self._tools_created:
             raise RuntimeError("Tools have already been created")
 
+        # 初始化工作区管理器
+        init_workspace_manager(self._settings.workspace_root)
+
         # 文件操作工具
         file_read, file_write = make_file_tools(
             workspace_root=self._settings.workspace_root
@@ -93,13 +97,13 @@ class ToolManager:
         )
 
         # HTTP工具
-        http_get, duckduckgo_search, news_search = make_http_tools()
+        http_get, = make_http_tools()
 
         # 时间工具
         get_current_time, get_date_info, get_timezone_list = make_time_tools()
 
-        # 搜索工具
-        enhanced_search, search_with_content = make_search_tools()
+        # Web工具
+        web_search, web_fetch = make_web_tools()
 
         # 注册所有工具
         self._registry.register_all(
@@ -115,13 +119,11 @@ class ToolManager:
                 shell_kill,
                 status_update,
                 http_get,
-                duckduckgo_search,
-                news_search,
                 get_current_time,
                 get_date_info,
                 get_timezone_list,
-                enhanced_search,
-                search_with_content,
+                web_search,
+                web_fetch,
             )
         )
 

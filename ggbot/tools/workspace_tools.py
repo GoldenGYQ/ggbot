@@ -5,6 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from ..core.permissions import ensure_under_root
+from ..core.workspace_manager import get_workspace_manager
 from .registry import tool
 
 
@@ -48,6 +49,15 @@ def make_workspace_tools(*, workspace_root: Path):
             p = ensure_under_root(workspace_root, base / rel)
             p.mkdir(parents=True, exist_ok=True)
             created.append(p)
+
+        # 将创建的工作区添加到允许列表
+        workspace_manager = get_workspace_manager()
+        for path in created:
+            try:
+                workspace_manager.add_allowed_workspace(path)
+            except Exception:
+                # 如果添加失败，继续执行
+                pass
 
         rel_paths = [str(p.relative_to(workspace_root)) if p != workspace_root else "." for p in created]
         return "Created workspace paths:\n" + "\n".join(f"- {r}" for r in rel_paths)
