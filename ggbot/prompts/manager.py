@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..config import Settings
-from ..types import ChatMessage
+from ..core.config import Settings
+from ..core.types import ChatMessage
 from .builder import PromptBuilder
 from .repository import PromptRepository
 from .types import PromptMode, RenderedPrompt, PromptContext

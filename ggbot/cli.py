@@ -10,7 +10,7 @@ import typer
 
 from ggbot.core.config import Settings
 from ggbot.core.client_factory import make_llm_client
-from ggbot.core.prompts import PromptManager
+from ggbot.prompts import PromptManager
 from ggbot.core.sessions import default_sessions
 from ggbot.core.agent_loop import ToolLimits, run_query
 from ggbot.tools.file_tools import make_file_tools

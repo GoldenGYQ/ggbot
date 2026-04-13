@@ -14,7 +14,7 @@ from textual.containers import Horizontal
 from textual.widgets import Footer, Header, Input, RichLog, Static
 
 from ..core.config import Settings
-from ..core.prompts import PromptManager
+from ..prompts import PromptManager
 from ..core.session_meta import (
     SessionMeta,
     increment_user_turn,

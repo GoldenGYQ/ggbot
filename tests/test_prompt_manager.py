@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ggbot.core.config import Settings
-from ggbot.core.prompts import PromptManager
+from ggbot.prompts import PromptManager
 
 
 def test_prompt_manager_renders_default_profile(tmp_path: Path) -> None:
