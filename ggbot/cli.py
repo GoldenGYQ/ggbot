@@ -13,18 +13,23 @@ from ggbot.core.client_factory import make_llm_client
 from ggbot.prompts import PromptManager
 from ggbot.core.sessions import default_sessions
 from ggbot.core.agent_loop import ToolLimits, run_query
-from ggbot.tools.file_tools import make_file_tools
-from ggbot.tools.jobs_tool import make_job_tools
+from ggbot.tools.manager import create_tool_manager
 from ggbot.tools.context import ToolContext
 from ggbot.tools.registry import ToolRegistry
-from ggbot.tools.shell_tool import make_shell_tool
-from ggbot.tools.shell_stream_tool import make_shell_stream_tool
-from ggbot.tools.status_tool import make_status_tool
-from ggbot.tools.http_tools import make_http_tools
-from ggbot.tools.workspace_tools import make_workspace_tools
-from ggbot.tools.time_tools import make_time_tools
 from ggbot.core.transcript import Transcript, load_model_messages, open_session
 from ggbot.core.types import ChatMessage
+
+# ANSI color codes for log highlighting
+COLOR_RESET = "\033[0m"
+COLOR_BOLD = "\033[1m"
+COLOR_DIM = "\033[2m"
+COLOR_RED = "\033[31m"
+COLOR_GREEN = "\033[32m"
+COLOR_YELLOW = "\033[33m"
+COLOR_BLUE = "\033[34m"
+COLOR_MAGENTA = "\033[35m"
+COLOR_CYAN = "\033[36m"
+COLOR_WHITE = "\033[37m"
 
 app = typer.Typer(add_completion=False, help="GGbot - minimal CLI agent")
 
@@ -117,7 +122,7 @@ def _render_event_line(
         return None
 
     data = ev.get("data") or {}
-    ts_prefix = f"[{_format_ts(ts_ms)}] "
+    ts_prefix = f"{COLOR_DIM}[{_format_ts(ts_ms)}]{COLOR_RESET} "
 
     if event_type == "tool_call":
         name = str(data.get("name") or "<unknown>")
@@ -125,21 +130,23 @@ def _render_event_line(
             args_text = json.dumps(data.get("arguments"), ensure_ascii=False)
         else:
             args_text = str(data.get("raw_arguments") or "{}")
-        return f"{ts_prefix}[EVENT] tool_call name={name} args={args_text}"
+        return f"{ts_prefix}{COLOR_YELLOW}[EVENT]{COLOR_RESET} {COLOR_BLUE}tool_call{COLOR_RESET} name={COLOR_CYAN}{name}{COLOR_RESET} args={args_text}"
 
     if event_type == "tool_result":
         name = str(data.get("name") or "<unknown>")
         status = "error" if bool(data.get("error")) else "ok"
+        status_color = COLOR_RED if status == "error" else COLOR_GREEN
         auto_healed = " auto_healed=true" if bool(data.get("auto_healed")) else ""
         content_len = int(data.get("content_len") or 0)
         return (
-            f"{ts_prefix}[EVENT] tool_result name={name} status={status} "
-            f"content_len={content_len}{auto_healed}"
+            f"{ts_prefix}{COLOR_YELLOW}[EVENT]{COLOR_RESET} {COLOR_BLUE}tool_result{COLOR_RESET} "
+            f"name={COLOR_CYAN}{name}{COLOR_RESET} status={status_color}{status}{COLOR_RESET} "
+            f"content_len={COLOR_MAGENTA}{content_len}{COLOR_RESET}{auto_healed}"
         )
 
     if event_type == "provider_error":
         err = str(data.get("error") or "unknown")
-        return f"{ts_prefix}[EVENT] provider_error {err}"
+        return f"{ts_prefix}{COLOR_YELLOW}[EVENT]{COLOR_RESET} {COLOR_RED}provider_error{COLOR_RESET} {err}"
 
     if event_type == "status":
         msg = str(data.get("message") or "")
@@ -153,7 +160,7 @@ def _render_event_line(
             extras.append(f"percent={percent}")
 
         extra_text = (" " + " ".join(extras)) if extras else ""
-        return f"{ts_prefix}[EVENT] status{extra_text} {msg}"
+        return f"{ts_prefix}{COLOR_YELLOW}[EVENT]{COLOR_RESET} {COLOR_MAGENTA}status{COLOR_RESET}{extra_text} {msg}"
 
     if event_type == "tool_stream":
         name = str(data.get("name") or "<unknown>")
@@ -161,7 +168,7 @@ def _render_event_line(
         chunk = chunk.replace("\r", "")
         if len(chunk) > 200:
             chunk = chunk[:200] + "…"
-        return f"{ts_prefix}[EVENT] tool_stream name={name} chunk={chunk!r}"
+        return f"{ts_prefix}{COLOR_YELLOW}[EVENT]{COLOR_RESET} {COLOR_BLUE}tool_stream{COLOR_RESET} name={COLOR_CYAN}{name}{COLOR_RESET} chunk={COLOR_DIM}{chunk!r}{COLOR_RESET}"
 
     return None
 
@@ -215,13 +222,32 @@ def _parse_rendered_event_line(
 
 
 def _render_log_message(msg: ChatMessage, *, ts_ms: int | None = None) -> str:
-    ts_prefix = f"[{_format_ts(ts_ms)}] "
+    ts_prefix = f"{COLOR_DIM}[{_format_ts(ts_ms)}]{COLOR_RESET} "
+
+    # Determine role color
+    if msg.role == "user":
+        role_color = COLOR_GREEN
+    elif msg.role == "assistant":
+        if msg.tool_calls:
+            role_color = COLOR_YELLOW
+        else:
+            role_color = COLOR_CYAN
+    elif msg.role == "system":
+        role_color = COLOR_MAGENTA
+    elif msg.role == "tool":
+        role_color = COLOR_BLUE
+    else:
+        role_color = COLOR_WHITE
+
+    # Format role label
     if msg.role == "tool":
         role_label = f"TOOL:{msg.name or 'tool'}"
     elif msg.role == "assistant" and msg.tool_calls:
         role_label = "ASSISTANT:tool_calls"
     else:
         role_label = msg.role.upper()
+
+    colored_role = f"{role_color}[{role_label}]{COLOR_RESET}"
 
     content = (msg.content or "").strip()
     if not content and msg.tool_calls:
@@ -232,49 +258,13 @@ def _render_log_message(msg: ChatMessage, *, ts_ms: int | None = None) -> str:
 
     lines = content.splitlines()
     if len(lines) == 1:
-        return f"{ts_prefix}[{role_label}] {lines[0]}"
+        return f"{ts_prefix}{colored_role} {lines[0]}"
 
-    first = f"{ts_prefix}[{role_label}] {lines[0]}"
+    first = f"{ts_prefix}{colored_role} {lines[0]}"
     rest = "\n".join(f"  {line}" for line in lines[1:])
     return f"{first}\n{rest}"
 
 
-def _register_builtin_tools(registry: ToolRegistry, settings: Settings, *, shell_confirm_callback=None) -> None:
-    file_read, file_write = make_file_tools(workspace_root=settings.workspace_root)
-    create_workspace, workspace_list = make_workspace_tools(workspace_root=settings.workspace_root)
-    shell_run = make_shell_tool(
-        workspace_root=settings.workspace_root,
-        confirm=settings.shell_confirm,
-        timeout_ms=settings.shell_timeout_ms,
-        max_output_chars=settings.shell_max_output_chars,
-        confirm_callback=shell_confirm_callback,
-    )
-    shell_jobs, shell_tail, shell_kill = make_job_tools(workspace_root=settings.workspace_root)
-    status_update = make_status_tool()
-    shell_stream = make_shell_stream_tool(workspace_root=settings.workspace_root)
-    http_get, duckduckgo_search, news_search = make_http_tools()
-    get_current_time, get_date_info, get_timezone_list = make_time_tools()
-
-    registry.register_all(
-        (
-            file_read,
-            file_write,
-            create_workspace,
-            workspace_list,
-            shell_run,
-            shell_stream,
-            shell_jobs,
-            shell_tail,
-            shell_kill,
-            status_update,
-            http_get,
-            duckduckgo_search,
-            news_search,
-            get_current_time,
-            get_date_info,
-            get_timezone_list,
-        )
-    )
 
 
 def _ensure_message_bootstrap(
@@ -397,8 +387,9 @@ def chat(
 
     messages = load_model_messages(transcript)
 
-    registry = ToolRegistry()
-    _register_builtin_tools(registry, settings)
+    # 使用新的ToolManager
+    tool_manager = create_tool_manager(settings)
+    registry = tool_manager.registry
 
     prompt_manager = PromptManager(settings=settings)
     system_message = prompt_manager.build_system_message(
@@ -410,7 +401,7 @@ def chat(
     client = make_llm_client(settings)
 
     try:
-        tool_context = ToolContext(
+        tool_context = tool_manager.create_tool_context(
             session_id=session_id,
             transcript=transcript,
             workspace_root=settings.workspace_root,
@@ -461,8 +452,9 @@ def repl(
 
     messages = load_model_messages(transcript)
 
-    registry = ToolRegistry()
-    _register_builtin_tools(registry, settings)
+    # 使用新的ToolManager
+    tool_manager = create_tool_manager(settings)
+    registry = tool_manager.registry
 
     prompt_manager = PromptManager(settings=settings)
     system_message = prompt_manager.build_system_message(
@@ -477,7 +469,7 @@ def repl(
     print("Type /help for commands. Ctrl+C to exit.")
 
     try:
-        tool_context = ToolContext(
+        tool_context = tool_manager.create_tool_context(
             session_id=session_id,
             transcript=transcript,
             workspace_root=settings.workspace_root,

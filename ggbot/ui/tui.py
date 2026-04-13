@@ -29,16 +29,9 @@ from ..core.transcript import Transcript, clear_transcript, load_model_messages,
 from ..core.types import ChatMessage
 from ..core.client_factory import make_llm_client
 from ..providers.types import ChatCompletionClient
-from ..tools.file_tools import make_file_tools
-from ..tools.jobs_tool import make_job_tools
+from ..tools.manager import create_tool_manager
 from ..tools.context import ToolContext
 from ..tools.registry import ToolRegistry
-from ..tools.shell_tool import make_shell_tool
-from ..tools.shell_stream_tool import make_shell_stream_tool
-from ..tools.status_tool import make_status_tool
-from ..tools.http_tools import make_http_tools
-from ..tools.workspace_tools import make_workspace_tools
-from ..tools.time_tools import make_time_tools
 from .pets import PetBones, Species, list_species, render_sprite
 
 
@@ -65,47 +58,6 @@ def _default_system_message() -> ChatMessage:
     )
 
 
-def _register_builtin_tools(
-    registry: ToolRegistry,
-    settings: Settings,
-    *,
-    shell_confirm_callback=None,
-) -> None:
-    file_read, file_write = make_file_tools(workspace_root=settings.workspace_root)
-    create_workspace, workspace_list = make_workspace_tools(workspace_root=settings.workspace_root)
-    shell_run = make_shell_tool(
-        workspace_root=settings.workspace_root,
-        confirm=settings.shell_confirm,
-        timeout_ms=settings.shell_timeout_ms,
-        max_output_chars=settings.shell_max_output_chars,
-        confirm_callback=shell_confirm_callback,
-    )
-    shell_jobs, shell_tail, shell_kill = make_job_tools(workspace_root=settings.workspace_root)
-    status_update = make_status_tool()
-    shell_stream = make_shell_stream_tool(workspace_root=settings.workspace_root)
-    http_get, duckduckgo_search, news_search = make_http_tools()
-    get_current_time, get_date_info, get_timezone_list = make_time_tools()
-
-    registry.register_all(
-        (
-            file_read,
-            file_write,
-            create_workspace,
-            workspace_list,
-            shell_run,
-            shell_stream,
-            shell_jobs,
-            shell_tail,
-            shell_kill,
-            status_update,
-            http_get,
-            duckduckgo_search,
-            news_search,
-            get_current_time,
-            get_date_info,
-            get_timezone_list,
-        )
-    )
 
 
 def _ensure_message_bootstrap(
@@ -483,7 +435,7 @@ class GGbotTui(App[None]):
 
         if not arg or arg.lower() in {"list", "ls"}:
             self._append_system(f"Current session: {self.runtime.session_id}")
-            self._append_system(f"Defaults: chat={defaults.chat} repl={defaults.repl}")
+            self._append_system(f"Defaults: chat={defaults.chat} repl={defaults.repl} tui={defaults.tui}")
             if sessions:
                 self._append_system("Sessions:")
                 for idx, sid in enumerate(sessions, start=1):
@@ -493,6 +445,8 @@ class GGbotTui(App[None]):
                         label = "repl"
                     elif sid == defaults.chat:
                         label = "chat"
+                    elif sid == defaults.tui:
+                        label = "tui"
                     self._append_system(f"  {idx}) {label} — {title}")
             else:
                 self._append_system("Sessions: (none)")
@@ -510,10 +464,12 @@ class GGbotTui(App[None]):
         else:
             if target.lower() == "chat":
                 target = defaults.chat
-            elif target.lower() in {"repl", "tui"}:
+            elif target.lower() == "repl":
                 target = defaults.repl
+            elif target.lower() == "tui":
+                target = defaults.tui
             else:
-                self._append_system("Use /session chat, /session repl, or /session <number>.")
+                self._append_system("Use /session chat, /session repl, /session tui, or /session <number>.")
                 return True
 
         self._switch_session(target)
@@ -533,7 +489,7 @@ class GGbotTui(App[None]):
         existing_sorted = sorted(existing, key=mtime, reverse=True)
         # Ensure defaults are always first.
         out: list[str] = []
-        for sid in (defaults.repl, defaults.chat):
+        for sid in (defaults.repl, defaults.chat, defaults.tui):
             if sid not in out:
                 out.append(sid)
         for sid in existing_sorted:
@@ -726,6 +682,7 @@ class GGbotTui(App[None]):
                 self.call_from_thread(update_title)
 
         try:
+            # 直接创建ToolContext，因为参数很简单
             tool_context = ToolContext(
                 session_id=self.runtime.session_id,
                 transcript=self.runtime.transcript,
@@ -806,7 +763,7 @@ def run_tui(*, resume: str | None = None, workspace_root: Path | None = None) ->
         session_id = resume
     else:
         recent = _most_recent_session_id(settings.resolved_transcript_dir())
-        session_id = recent or defaults.repl
+        session_id = recent or defaults.tui
     session = open_session(transcript_dir=settings.resolved_transcript_dir(), session_id=session_id)
     transcript = Transcript(path=session.path)
 
@@ -819,11 +776,12 @@ def run_tui(*, resume: str | None = None, workspace_root: Path | None = None) ->
             return "Cancelled: TUI not ready for confirmation."
         return cb(cmd)
 
-    _register_builtin_tools(
-        registry,
+    # 使用新的ToolManager
+    tool_manager = create_tool_manager(
         settings,
         shell_confirm_callback=shell_confirm_callback if settings.shell_confirm else None,
     )
+    registry = tool_manager.registry
 
     prompt_manager = PromptManager(settings=settings)
     system_message = prompt_manager.build_system_message(

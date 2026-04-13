@@ -1,9 +1,9 @@
 {
-  "repl": {
+  "tui": {
     "created_ms": 0,
-    "title": "你好",
+    "title": "今天是2024年7月15日",
     "title_gen_turn": 1,
-    "updated_ms": 1776067704356,
-    "user_turns": 6
+    "updated_ms": 1776073742268,
+    "user_turns": 1
   }
 }

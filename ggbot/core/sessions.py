@@ -9,6 +9,7 @@ from pathlib import Path
 class DefaultSessions:
     chat: str
     repl: str
+    tui: str
 
 
 def _short_hash(text: str) -> str:
@@ -33,7 +34,7 @@ def default_sessions(*, workspace_root: Path, transcript_dir: Path) -> DefaultSe
         in_workspace = str(td).startswith(str(ws))
 
     if in_workspace:
-        return DefaultSessions(chat="chat", repl="repl")
+        return DefaultSessions(chat="chat", repl="repl", tui="tui")
 
     suffix = _short_hash(str(ws))
-    return DefaultSessions(chat=f"chat_{suffix}", repl=f"repl_{suffix}")
+    return DefaultSessions(chat=f"chat_{suffix}", repl=f"repl_{suffix}", tui=f"tui_{suffix}")

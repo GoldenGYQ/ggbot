@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m ggbot.cli --help)"
+    ]
+  }
+}
