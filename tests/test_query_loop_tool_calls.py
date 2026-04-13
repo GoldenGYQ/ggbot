@@ -1,60 +1,36 @@
-import json
 from pathlib import Path
-from typing import Iterable
 
-import httpx
-
-from ggbot.providers.openai_client import OpenAICompatibleClient
+from ggbot.core.types import AssistantFinal
 from ggbot.core.agent_loop import ToolLimits, run_query
 from ggbot.tools.registry import ToolRegistry, tool
 from ggbot.core.transcript import Transcript
 from ggbot.core.types import ChatMessage, ToolCall, ToolFunction
-
-
-def _sse_bytes(events: list[dict] | list[str]) -> Iterable[bytes]:
-    for ev in events:
-        if isinstance(ev, str):
-            data = ev
-        else:
-            data = json.dumps(ev)
-        yield f"data: {data}\n\n".encode("utf-8")
-
-
 def test_query_loop_executes_tool_calls(tmp_path: Path) -> None:
-    # Model streams a tool_call, no assistant text.
-    events = [
-        {
-            "choices": [
-                {
-                    "delta": {
-                        "tool_calls": [
-                            {
-                                "index": 0,
-                                "id": "call_1",
-                                "function": {"name": "echo", "arguments": "{\"text\":\"hi\"}"},
-                            }
-                        ]
-                    }
-                }
-            ]
-        },
-        "[DONE]",
-    ]
+    class _Client:
+        def __init__(self) -> None:
+            self.n = 0
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            headers={"content-type": "text/event-stream"},
-            content=b"".join(_sse_bytes(events)),
-        )
+        def close(self) -> None:
+            return
 
-    transport = httpx.MockTransport(handler)
-    client = OpenAICompatibleClient(
-        base_url="https://example.test/v1",
-        api_key="test",
-        model="test-model",
-        transport=transport,
-    )
+        def complete(self, *, messages: list[ChatMessage], tools):
+            return self.stream_and_collect(messages=messages, tools=tools, on_text_delta=None)
+
+        def stream_and_collect(self, *, messages: list[ChatMessage], tools, on_text_delta=None):
+            self.n += 1
+            if self.n == 1:
+                return AssistantFinal(
+                    content="",
+                    tool_calls=[
+                        ToolCall(
+                            id="call_1",
+                            function=ToolFunction(name="echo", arguments='{"text":"hi"}'),
+                        )
+                    ],
+                )
+            return AssistantFinal(content="ok", tool_calls=[])
+
+    client = _Client()
 
     from pydantic import BaseModel
 
@@ -91,40 +67,25 @@ def test_query_loop_executes_tool_calls(tmp_path: Path) -> None:
 
 
 def test_query_loop_tool_args_parse_error_does_not_crash(tmp_path: Path) -> None:
-    # Model streams a tool_call with invalid JSON args; we must still emit a tool message.
-    events = [
-        {
-            "choices": [
-                {
-                    "delta": {
-                        "tool_calls": [
-                            {
-                                "index": 0,
-                                "id": "call_bad_args",
-                                "function": {"name": "echo", "arguments": "{not-json"},
-                            }
-                        ]
-                    }
-                }
-            ]
-        },
-        "[DONE]",
-    ]
+    class _Client:
+        def close(self) -> None:
+            return
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            headers={"content-type": "text/event-stream"},
-            content=b"".join(_sse_bytes(events)),
-        )
+        def complete(self, *, messages: list[ChatMessage], tools):
+            return self.stream_and_collect(messages=messages, tools=tools, on_text_delta=None)
 
-    transport = httpx.MockTransport(handler)
-    client = OpenAICompatibleClient(
-        base_url="https://example.test/v1",
-        api_key="test",
-        model="test-model",
-        transport=transport,
-    )
+        def stream_and_collect(self, *, messages: list[ChatMessage], tools, on_text_delta=None):
+            return AssistantFinal(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="call_bad_args",
+                        function=ToolFunction(name="echo", arguments="{not-json"),
+                    )
+                ],
+            )
+
+    client = _Client()
 
     from pydantic import BaseModel
 
@@ -160,29 +121,21 @@ def test_query_loop_tool_args_parse_error_does_not_crash(tmp_path: Path) -> None
 
 
 def test_run_query_auto_heals_missing_tool_messages_before_provider_call(tmp_path: Path) -> None:
-    captured_payload: dict | None = None
+    captured_messages: list[dict] | None = None
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal captured_payload
-        captured_payload = json.loads(request.content.decode("utf-8"))
-        # Return a simple assistant message with no tool calls.
-        events = [
-            {"choices": [{"delta": {"content": "ok"}}]},
-            "[DONE]",
-        ]
-        return httpx.Response(
-            200,
-            headers={"content-type": "text/event-stream"},
-            content=b"".join(_sse_bytes(events)),
-        )
+    class _RecordingClient:
+        def close(self) -> None:
+            return
 
-    transport = httpx.MockTransport(handler)
-    client = OpenAICompatibleClient(
-        base_url="https://example.test/v1",
-        api_key="test",
-        model="test-model",
-        transport=transport,
-    )
+        def complete(self, *, messages: list[ChatMessage], tools):
+            return self.stream_and_collect(messages=messages, tools=tools, on_text_delta=None)
+
+        def stream_and_collect(self, *, messages: list[ChatMessage], tools, on_text_delta=None):
+            nonlocal captured_messages
+            captured_messages = [m.model_dump(exclude_none=True) for m in messages]
+            return AssistantFinal(content="ok", tool_calls=[])
+
+    client = _RecordingClient()
 
     # Prepare an interrupted history: assistant tool_calls but missing tool response.
     messages: list[ChatMessage] = [
@@ -212,9 +165,8 @@ def test_run_query_auto_heals_missing_tool_messages_before_provider_call(tmp_pat
         stream_printer=None,
     )
 
-    assert captured_payload is not None
-    sent = captured_payload.get("messages")
-    assert isinstance(sent, list)
+    assert captured_messages is not None
+    sent = captured_messages
 
     # Validate the assistant tool_calls is immediately followed by a tool message.
     for idx, m in enumerate(sent):
@@ -237,21 +189,26 @@ def test_query_loop_cancels_repeated_identical_tool_calls(tmp_path: Path) -> Non
         def __init__(self) -> None:
             self.n = 0
 
+        def close(self) -> None:
+            return
+
+        def complete(self, *, messages: list[ChatMessage], tools):
+            return self.stream_and_collect(messages=messages, tools=tools, on_text_delta=None)
+
         def stream_and_collect(self, *, messages: list[ChatMessage], tools, on_text_delta=None):
             self.n += 1
             # Always request the same tool call.
-            return type(
-                "Final",
-                (),
-                {
-                    "content": "",
-                    "tool_calls": [
-                        ToolCall(
-                            id=f"call_{self.n}",
-                            function=ToolFunction(name="duckduckgo_search", arguments='{"query":"x","max_results":1}'),
-                        )
-                    ],
-                },
+            return AssistantFinal(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id=f"call_{self.n}",
+                        function=ToolFunction(
+                            name="duckduckgo_search",
+                            arguments='{"query":"x","max_results":1}',
+                        ),
+                    )
+                ],
             )
 
     calls: list[dict] = []
@@ -292,27 +249,21 @@ def test_query_loop_cancels_repeated_identical_tool_calls(tmp_path: Path) -> Non
 
 
 def test_run_query_sanitizes_orphan_tool_messages_before_provider_call(tmp_path: Path) -> None:
-    captured_payload: dict | None = None
+    captured_messages: list[dict] | None = None
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal captured_payload
-        captured_payload = json.loads(request.content.decode("utf-8"))
-        events = [
-            {"choices": [{"delta": {"content": "ok"}}]},
-            "[DONE]",
-        ]
-        return httpx.Response(
-            200,
-            headers={"content-type": "text/event-stream"},
-            content=b"".join(_sse_bytes(events)),
-        )
+    class _RecordingClient:
+        def close(self) -> None:
+            return
 
-    client = OpenAICompatibleClient(
-        base_url="https://example.test/v1",
-        api_key="test",
-        model="test-model",
-        transport=httpx.MockTransport(handler),
-    )
+        def complete(self, *, messages: list[ChatMessage], tools):
+            return self.stream_and_collect(messages=messages, tools=tools, on_text_delta=None)
+
+        def stream_and_collect(self, *, messages: list[ChatMessage], tools, on_text_delta=None):
+            nonlocal captured_messages
+            captured_messages = [m.model_dump(exclude_none=True) for m in messages]
+            return AssistantFinal(content="ok", tool_calls=[])
+
+    client = _RecordingClient()
 
     # Corrupted history: a tool message appears without a preceding assistant tool_calls.
     messages: list[ChatMessage] = [
@@ -333,9 +284,8 @@ def test_run_query_sanitizes_orphan_tool_messages_before_provider_call(tmp_path:
         stream_printer=None,
     )
 
-    assert captured_payload is not None
-    sent = captured_payload.get("messages")
-    assert isinstance(sent, list)
+    assert captured_messages is not None
+    sent = captured_messages
     # There should be no tool role messages without a preceding tool_calls block; we convert them to system.
     assert not any(m.get("role") == "tool" for m in sent)
 

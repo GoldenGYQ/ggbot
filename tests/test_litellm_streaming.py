@@ -1,23 +1,16 @@
-import json
-from typing import Iterable
+from __future__ import annotations
 
-import httpx
+from typing import Any, Iterable
 
-from ggbot.providers.openai_client import OpenAICompatibleClient
+import litellm
+import pytest
+
 from ggbot.core.types import ChatMessage
+from ggbot.providers.litellm_client import LiteLLMClient
 
 
-def _sse_bytes(events: list[dict] | list[str]) -> Iterable[bytes]:
-    for ev in events:
-        if isinstance(ev, str):
-            data = ev
-        else:
-            data = json.dumps(ev)
-        yield f"data: {data}\n\n".encode("utf-8")
-
-
-def test_stream_and_collect_merges_content_and_tool_calls() -> None:
-    events = [
+def test_litellm_stream_and_collect_merges_content_and_tool_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    chunks: list[dict[str, Any]] = [
         {"choices": [{"delta": {"content": "Hel"}}]},
         {"choices": [{"delta": {"content": "lo"}}]},
         {
@@ -42,28 +35,20 @@ def test_stream_and_collect_merges_content_and_tool_calls() -> None:
                         "tool_calls": [
                             {"index": 0, "function": {"arguments": ".txt\"}"}}
                         ]
-                    }
+                    },
+                    "finish_reason": "tool_calls",
                 }
             ]
         },
-        "[DONE]",
     ]
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path.endswith("/chat/completions")
-        return httpx.Response(
-            200,
-            headers={"content-type": "text/event-stream"},
-            content=b"".join(_sse_bytes(events)),
-        )
+    def fake_completion(*args: Any, **kwargs: Any) -> Iterable[dict[str, Any]]:
+        assert kwargs.get("stream") is True
+        return iter(chunks)
 
-    transport = httpx.MockTransport(handler)
-    client = OpenAICompatibleClient(
-        base_url="https://example.test/v1",
-        api_key="test",
-        model="test-model",
-        transport=transport,
-    )
+    monkeypatch.setattr(litellm, "completion", fake_completion)
+
+    client = LiteLLMClient(model="test-model", api_base="https://example.test/v1", api_key="test")
 
     deltas: list[str] = []
     final = client.stream_and_collect(
@@ -78,5 +63,3 @@ def test_stream_and_collect_merges_content_and_tool_calls() -> None:
     assert final.tool_calls[0].id == "call_1"
     assert final.tool_calls[0].function.name == "file_read"
     assert final.tool_calls[0].function.arguments == '{"path":"foo.txt"}'
-
-    client.close()

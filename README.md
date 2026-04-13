@@ -2,6 +2,8 @@
 
 A minimal, Claude-Code-inspired CLI agent.
 
+**文档分级：A（只给项目成员｜内部）**
+
 ## Quick Start (uv, recommended)
 
 From repo root:
@@ -31,10 +33,11 @@ From repo root:
 
 - `ggbot --help`
 - `ggbot --debug repl` (pretty tracebacks)
-- `ggbot chat "hello"`
+- `ggbot chat "hello"` 
 - `ggbot repl`
 - `ggbot tui`
-- `ggbot log` (view transcript log in terminal)
+- `ggbot log` （print the recent logs）
+- `ggbot log --follow`(view transcript log in terminal)
 
 In REPL, you can create project folders inside the current workspace via:
 
@@ -68,9 +71,14 @@ GGBot 会按优先级读取配置：
 
 ### 环境变量
 
-- `OPENAI_BASE_URL`（默认：`https://api.openai.com/v1`）
-- `OPENAI_API_KEY`（必填）
 - `OPENAI_MODEL`
+	- 作为 LiteLLM 的 `model` 默认值（例如 OpenAI、Anthropic、Gemini、各类网关/代理等）。
+	- 具体模型命名规则以 LiteLLM 文档为准（不同 provider 的前缀/命名不同）。
+- `OPENAI_API_KEY`
+	- 可选：作为 LiteLLM 的 `api_key` 默认值（对 OpenAI / OpenAI-compatible 网关通常需要）。
+	- 如果你使用的是其他 provider（例如 Anthropic/Gemini/Azure 等），通常需要设置该 provider 对应的环境变量（由 LiteLLM 读取），此时可以不设置 `OPENAI_API_KEY`。
+- `OPENAI_BASE_URL`（默认：`https://api.openai.com/v1`）
+	- 可选：作为 LiteLLM 的 `api_base` 默认值（常用于 OpenAI-compatible 网关）。
 - `GGBOT_WORKSPACE_ROOT`（默认：当前工作目录）
 
 Transcript:
@@ -83,8 +91,8 @@ Transcript:
 （你也可以直接从 `./.env.example` 复制一份。）
 
 ```
-OPENAI_API_KEY=sk-xxxx
 OPENAI_MODEL=gpt-4.1-mini
+OPENAI_API_KEY=sk-xxxx
 ```
 
 ### 例子：.ggbot/config.toml
@@ -93,6 +101,8 @@ OPENAI_MODEL=gpt-4.1-mini
 
 ```toml
 [openai]
+# 这里的 key 名沿用历史/兼容命名：作为 LiteLLM 的默认 model/api_base/api_key。
+# 仅当你使用 OpenAI/OpenAI-compatible 网关时通常需要 api_key/base_url。
 api_key = "sk-xxxx"
 base_url = "https://api.openai.com/v1"
 model = "gpt-4.1-mini"
@@ -105,3 +115,14 @@ confirm = true
 timeout_ms = 30000
 max_output_chars = 30000
 ```
+
+## Docs (internal)
+
+- Start here: [doc/README.md](doc/README.md)
+- Architecture: [doc/architecture.md](doc/architecture.md)
+- Development: [doc/development.md](doc/development.md)
+- Configuration & Ops: [doc/configuration.md](doc/configuration.md)
+- Security: [doc/security.md](doc/security.md)
+- Troubleshooting: [doc/troubleshooting.md](doc/troubleshooting.md)
+- Contributing: [doc/contributing.md](doc/contributing.md)
+- Testing quickref: [doc/tests.md](doc/tests.md)

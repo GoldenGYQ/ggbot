@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import re
 import asyncio
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlencode
 
 import httpx
@@ -103,7 +103,9 @@ def _parse_ddg_lite_html(html_text: str, *, max_results: int) -> list[dict[str, 
     return out
 
 
-def make_http_tools(*, transport: httpx.BaseTransport | None = None):
+def make_http_tools(*, transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None = None):
+    async_transport = cast(httpx.AsyncBaseTransport | None, transport)
+
     @tool()
     async def http_get(ctx: ToolContext, args: HttpGetArgs) -> dict[str, Any]:
         """Fetch a URL over HTTP(S) and return status + truncated text."""
@@ -116,7 +118,7 @@ def make_http_tools(*, transport: httpx.BaseTransport | None = None):
             },
         )
 
-        async with httpx.AsyncClient(follow_redirects=True, transport=transport) as client:
+        async with httpx.AsyncClient(follow_redirects=True, transport=async_transport) as client:
             resp = await client.get(
                 args.url,
                 headers=args.headers,
@@ -155,7 +157,7 @@ def make_http_tools(*, transport: httpx.BaseTransport | None = None):
 
         url = base + "?" + urlencode(params)
 
-        async with httpx.AsyncClient(follow_redirects=True, transport=transport) as client:
+        async with httpx.AsyncClient(follow_redirects=True, transport=async_transport) as client:
             resp = await client.get(url, timeout=15.0)
 
         results = _parse_ddg_lite_html(resp.text or "", max_results=args.max_results)
@@ -196,7 +198,7 @@ def make_http_tools(*, transport: httpx.BaseTransport | None = None):
         fetched: list[dict[str, Any]] = [None] * top_k  # type: ignore[list-item]
         done = 0
 
-        async with httpx.AsyncClient(follow_redirects=True, transport=transport) as client:
+        async with httpx.AsyncClient(follow_redirects=True, transport=async_transport) as client:
 
             async def fetch_one(i: int, item: dict[str, Any]) -> None:
                 nonlocal done

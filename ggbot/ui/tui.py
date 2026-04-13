@@ -26,7 +26,8 @@ from ..core.agent_loop import run_query
 from ..core.agent_loop import ToolLimits
 from ..core.transcript import Transcript, clear_transcript, load_model_messages, open_session
 from ..core.types import ChatMessage
-from ..providers.openai_client import OpenAICompatibleClient
+from ..core.client_factory import make_llm_client
+from ..providers.types import ChatCompletionClient
 from ..tools.file_tools import make_file_tools
 from ..tools.jobs_tool import make_job_tools
 from ..tools.context import ToolContext
@@ -116,7 +117,7 @@ class _Runtime:
     transcript: Transcript
     messages: list[ChatMessage]
     registry: ToolRegistry
-    client: OpenAICompatibleClient
+    client: ChatCompletionClient
 
 
 _GYQ666_LOGO_LINES = [
@@ -781,11 +782,6 @@ def run_tui(*, resume: str | None = None, workspace_root: Path | None = None) ->
     if workspace_root is not None:
         settings.workspace_root = workspace_root
 
-    if not settings.openai_api_key:
-        raise ValueError(
-            "Missing OPENAI_API_KEY. Set it via env, .env, or .ggbot/config.toml (see python-mvp/README.md)."
-        )
-
     defaults = default_sessions(
         workspace_root=settings.workspace_root,
         transcript_dir=settings.resolved_transcript_dir(),
@@ -816,11 +812,7 @@ def run_tui(*, resume: str | None = None, workspace_root: Path | None = None) ->
         shell_confirm_callback=shell_confirm_callback if settings.shell_confirm else None,
     )
 
-    client = OpenAICompatibleClient(
-        base_url=settings.openai_base_url,
-        api_key=settings.openai_api_key,
-        model=settings.openai_model,
-    )
+    client = make_llm_client(settings)
 
     runtime = _Runtime(
         settings=settings,

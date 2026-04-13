@@ -8,6 +8,8 @@ from ggbot.core.config import Settings
 
 def test_load_reads_toml_when_env_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
 
     (tmp_path / ".ggbot").mkdir()
     (tmp_path / ".ggbot" / "config.toml").write_text(

@@ -9,9 +9,9 @@ from pathlib import Path
 import typer
 
 from ggbot.core.config import Settings
+from ggbot.core.client_factory import make_llm_client
 from ggbot.core.sessions import default_sessions
 from ggbot.core.agent_loop import ToolLimits, run_query
-from ggbot.providers.openai_client import OpenAICompatibleClient
 from ggbot.tools.file_tools import make_file_tools
 from ggbot.tools.jobs_tool import make_job_tools
 from ggbot.tools.context import ToolContext
@@ -376,11 +376,6 @@ def chat(
     if workspace_root is not None:
         settings.workspace_root = workspace_root
 
-    if not settings.openai_api_key:
-        raise typer.BadParameter(
-            "Missing OPENAI_API_KEY. Set it via env, .env, or .ggbot/config.toml (see python-mvp/README.md)."
-        )
-
     defaults = default_sessions(
         workspace_root=settings.workspace_root,
         transcript_dir=settings.resolved_transcript_dir(),
@@ -396,11 +391,7 @@ def chat(
     registry = ToolRegistry()
     _register_builtin_tools(registry, settings)
 
-    client = OpenAICompatibleClient(
-        base_url=settings.openai_base_url,
-        api_key=settings.openai_api_key,
-        model=settings.openai_model,
-    )
+    client = make_llm_client(settings)
 
     try:
         tool_context = ToolContext(
@@ -444,11 +435,6 @@ def repl(
     if workspace_root is not None:
         settings.workspace_root = workspace_root
 
-    if not settings.openai_api_key:
-        raise typer.BadParameter(
-            "Missing OPENAI_API_KEY. Set it via env, .env, or .ggbot/config.toml (see python-mvp/README.md)."
-        )
-
     defaults = default_sessions(
         workspace_root=settings.workspace_root,
         transcript_dir=settings.resolved_transcript_dir(),
@@ -463,11 +449,7 @@ def repl(
     registry = ToolRegistry()
     _register_builtin_tools(registry, settings)
 
-    client = OpenAICompatibleClient(
-        base_url=settings.openai_base_url,
-        api_key=settings.openai_api_key,
-        model=settings.openai_model,
-    )
+    client = make_llm_client(settings)
 
     print(f"GGbot REPL  session_id={session_id}")
     print("Type /help for commands. Ctrl+C to exit.")

@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from collections.abc import Callable
 import json
 
-from ..providers.openai_client import OpenAIClientError, OpenAICompatibleClient
+from ..providers.types import ChatCompletionClient
+from ..providers.types import ProviderError
 from ..tools.context import ToolContext
 from ..tools.registry import ToolRegistry, parse_tool_arguments
 from .transcript import Transcript
@@ -170,7 +171,7 @@ def _sanitize_orphan_tool_messages(*, messages: list[ChatMessage]) -> None:
 
 def run_query(
     *,
-    client: OpenAICompatibleClient,
+    client: ChatCompletionClient,
     registry: ToolRegistry,
     transcript: Transcript,
     messages: list[ChatMessage],
@@ -201,7 +202,7 @@ def run_query(
 
         try:
             assistant_final = client.stream_and_collect(messages=messages, tools=tools, on_text_delta=on_delta)
-        except OpenAIClientError as e:
+        except ProviderError as e:
             sys_msg = ChatMessage(
                 role="system",
                 content=(

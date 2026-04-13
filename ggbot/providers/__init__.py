@@ -1,3 +1,8 @@
-from .openai_client import OpenAICompatibleClient, OpenAIClientError
+from .litellm_client import LiteLLMClient
+from .types import ChatCompletionClient, ProviderError
 
-__all__ = ["OpenAICompatibleClient", "OpenAIClientError"]
+__all__ = [
+	"ChatCompletionClient",
+	"LiteLLMClient",
+	"ProviderError",
+]
