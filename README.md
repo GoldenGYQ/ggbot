@@ -2,15 +2,31 @@
 
 A minimal, Claude-Code-inspired CLI agent.
 
-**文档分级：A（只给项目成员｜内部）**
-
+文档分级：A（只给项目成员｜内部）
 ## Quick Start (uv, recommended)
 
 From repo root:
 
+### Windows (PowerShell)
+
 ```powershell
 uv venv .venv
 .\.venv\Scripts\Activate.ps1
+uv sync --extra dev
+```
+
+If activation is blocked by execution policy:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+### macOS / Linux (bash/zsh)
+
+```bash
+uv venv .venv
+source .venv/bin/activate
 uv sync --extra dev
 ```
 

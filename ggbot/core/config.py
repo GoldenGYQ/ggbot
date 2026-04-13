@@ -18,8 +18,6 @@ class Settings(BaseSettings):
         env_prefix="",
         extra="ignore",
         populate_by_name=True,
-        env_file=(".env", ".ggbot/.env"),
-        env_file_encoding="utf-8",
     )
 
     # Model
@@ -64,9 +62,14 @@ class Settings(BaseSettings):
         but exported env vars always win.
         """
 
+        root = workspace_root or Path.cwd()
+
+        # Load from real environment variables only. We intentionally do NOT rely on
+        # BaseSettings env_file handling because its paths are resolved relative to
+        # the process CWD, which can cause ambient repo-level .env leakage when
+        # workspace_root is explicitly provided (e.g., tests).
         settings = cls()
-        if workspace_root is not None:
-            settings.workspace_root = workspace_root
+        settings.workspace_root = root
 
         # TOML config (optional)
         config_path = (settings.workspace_root / ".ggbot" / "config.toml").resolve()
@@ -77,7 +80,47 @@ class Settings(BaseSettings):
                 data = {}
             cls._apply_toml_config(settings, data)
 
+        # Dotenv (optional): only fills values not set by real env vars.
+        # Precedence: env > dotenv > toml > defaults.
+        cls._apply_dotenv(settings)
+
         return settings
+
+    @classmethod
+    def _apply_dotenv(cls, settings: "Settings") -> None:
+        values: dict[str, str] = {}
+        root = settings.workspace_root
+
+        # .env then .ggbot/.env (later overrides earlier)
+        values.update(_read_dotenv_file(root / ".env"))
+        values.update(_read_dotenv_file(root / ".ggbot" / ".env"))
+
+        def apply(env_name: str, attr: str, *, kind: str) -> None:
+            if env_name not in values:
+                return
+            if env_name in os.environ:
+                return
+            raw = values[env_name]
+            coerced = _coerce_env_value(raw, kind=kind, root=root)
+            setattr(settings, attr, coerced)
+
+        apply("OPENAI_BASE_URL", "openai_base_url", kind="str")
+        apply("OPENAI_API_KEY", "openai_api_key", kind="str_or_none")
+        apply("OPENAI_MODEL", "openai_model", kind="str")
+
+        apply("GGBOT_WORKSPACE_ROOT", "workspace_root", kind="path")
+
+        apply("GGBOT_MAX_TURNS", "max_turns", kind="int")
+
+        apply("GGBOT_MAX_TOOL_CALLS", "max_tool_calls", kind="int")
+        apply("GGBOT_MAX_TOOL_CALLS_PER_TOOL", "max_tool_calls_per_tool", kind="int")
+        apply("GGBOT_MAX_TOOL_CALLS_SAME_ARGS", "max_tool_calls_same_args", kind="int")
+
+        apply("GGBOT_TRANSCRIPT_DIR", "transcript_dir", kind="path_or_none")
+
+        apply("GGBOT_SHELL_CONFIRM", "shell_confirm", kind="bool")
+        apply("GGBOT_SHELL_TIMEOUT_MS", "shell_timeout_ms", kind="int")
+        apply("GGBOT_SHELL_MAX_OUTPUT_CHARS", "shell_max_output_chars", kind="int")
 
     @staticmethod
     def _apply_if_env_missing(settings: "Settings", env_name: str, attr: str, value: Any) -> None:
@@ -130,3 +173,83 @@ class Settings(BaseSettings):
             "shell_max_output_chars",
             shell.get("max_output_chars"),
         )
+
+
+def _read_dotenv_file(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    out: dict[str, str] = {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return {}
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip()
+        v = v.strip()
+        if not k:
+            continue
+        # Remove simple surrounding quotes.
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in {"\"", "'"}:
+            v = v[1:-1]
+        out[k] = v
+
+    return out
+
+
+_MIN_CONFIG_INT = -(2**63)
+_MAX_CONFIG_INT = 2**63 - 1
+
+
+def _parse_config_int(raw: str) -> int:
+    value = raw.strip()
+    if not value:
+        raise ValueError("Invalid integer value: empty string")
+
+    if value[0] in {"+", "-"}:
+        digits = value[1:]
+    else:
+        digits = value
+
+    if not digits or not digits.isdigit():
+        raise ValueError(f"Invalid integer value: {raw!r}")
+
+    parsed = int(value)
+    if parsed < _MIN_CONFIG_INT or parsed > _MAX_CONFIG_INT:
+        raise ValueError(
+            f"Integer value out of allowed range [{_MIN_CONFIG_INT}, {_MAX_CONFIG_INT}]: {raw!r}"
+        )
+    return parsed
+
+
+def _coerce_env_value(raw: str, *, kind: str, root: Path) -> Any:
+    if kind == "str":
+        return raw
+    if kind == "str_or_none":
+        return raw if raw != "" else None
+    if kind == "int":
+        return _parse_config_int(raw)
+    if kind == "bool":
+        v = raw.strip().lower()
+        if v in {"1", "true", "yes", "y", "on"}:
+            return True
+        if v in {"0", "false", "no", "n", "off"}:
+            return False
+        raise ValueError(f"Invalid boolean value: {raw!r}")
+    if kind == "path":
+        p = Path(raw)
+        return p if p.is_absolute() else (root / p)
+    if kind == "path_or_none":
+        if raw == "":
+            return None
+        p = Path(raw)
+        return p if p.is_absolute() else (root / p)
+    raise ValueError(f"Unknown coercion kind: {kind}")
