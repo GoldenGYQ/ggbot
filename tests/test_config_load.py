@@ -20,6 +20,10 @@ model = "m1"
 
 [ggbot]
 max_turns = 3
+
+[prompt]
+profile = "strict"
+dir = "custom-prompts"
 """.strip(),
         encoding="utf-8",
     )
@@ -28,6 +32,8 @@ max_turns = 3
     assert s.openai_api_key == "from_toml"
     assert s.openai_model == "m1"
     assert s.max_turns == 3
+    assert s.prompt_profile == "strict"
+    assert s.prompt_dir == Path("custom-prompts")
 
 
 def test_env_overrides_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

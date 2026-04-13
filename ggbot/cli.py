@@ -10,6 +10,7 @@ import typer
 
 from ggbot.core.config import Settings
 from ggbot.core.client_factory import make_llm_client
+from ggbot.core.prompts import PromptManager
 from ggbot.core.sessions import default_sessions
 from ggbot.core.agent_loop import ToolLimits, run_query
 from ggbot.tools.file_tools import make_file_tools
@@ -271,10 +272,15 @@ def _register_builtin_tools(registry: ToolRegistry, settings: Settings, *, shell
     )
 
 
-def _ensure_message_bootstrap(messages: list[ChatMessage], transcript: Transcript) -> None:
+def _ensure_message_bootstrap(
+    messages: list[ChatMessage],
+    transcript: Transcript,
+    *,
+    system_message: ChatMessage | None = None,
+) -> None:
     if messages and messages[0].role == "system":
         return
-    msg = _default_system_message()
+    msg = system_message or _default_system_message()
     messages.insert(0, msg)
     transcript.append("model_message", msg.model_dump(exclude_none=True))
 
@@ -386,10 +392,15 @@ def chat(
 
     messages = load_model_messages(transcript)
 
-    _ensure_message_bootstrap(messages, transcript)
-
     registry = ToolRegistry()
     _register_builtin_tools(registry, settings)
+
+    prompt_manager = PromptManager(settings=settings)
+    system_message = prompt_manager.build_system_message(
+        mode="chat",
+        tool_names=[spec.name for spec in registry.specs()],
+    )
+    _ensure_message_bootstrap(messages, transcript, system_message=system_message)
 
     client = make_llm_client(settings)
 
@@ -444,10 +455,16 @@ def repl(
     transcript = Transcript(path=session.path)
 
     messages = load_model_messages(transcript)
-    _ensure_message_bootstrap(messages, transcript)
 
     registry = ToolRegistry()
     _register_builtin_tools(registry, settings)
+
+    prompt_manager = PromptManager(settings=settings)
+    system_message = prompt_manager.build_system_message(
+        mode="repl",
+        tool_names=[spec.name for spec in registry.specs()],
+    )
+    _ensure_message_bootstrap(messages, transcript, system_message=system_message)
 
     client = make_llm_client(settings)
 

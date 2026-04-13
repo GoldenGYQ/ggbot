@@ -100,6 +100,10 @@ GGBot 会按优先级读取配置：
 Transcript:
 - `GGBOT_TRANSCRIPT_DIR` (default: `.ggbot/transcripts` under workspace)
 
+Prompt Engineering:
+- `GGBOT_PROMPT_PROFILE` (default: `default`)
+- `GGBOT_PROMPT_DIR` (default: `./.ggbot/prompts`)
+
 ### 例子：.env
 
 在仓库根目录创建 `./.env`：
@@ -125,6 +129,12 @@ model = "gpt-4.1-mini"
 
 [ggbot]
 max_turns = 8
+
+[prompt]
+# profile file: ./.ggbot/prompts/<profile>.md
+profile = "default"
+# optional custom prompt directory
+dir = "./.ggbot/prompts"
 
 [shell]
 confirm = true

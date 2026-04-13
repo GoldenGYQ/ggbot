@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # Transcript
     transcript_dir: Path | None = Field(default=None, alias="GGBOT_TRANSCRIPT_DIR")
 
+    # Prompt engineering
+    prompt_profile: str = Field(default="default", alias="GGBOT_PROMPT_PROFILE")
+    prompt_dir: Path | None = Field(default=None, alias="GGBOT_PROMPT_DIR")
+
     # Shell safety
     shell_confirm: bool = Field(default=True, alias="GGBOT_SHELL_CONFIRM")
     shell_timeout_ms: int = Field(default=30_000, alias="GGBOT_SHELL_TIMEOUT_MS")
@@ -118,6 +122,9 @@ class Settings(BaseSettings):
 
         apply("GGBOT_TRANSCRIPT_DIR", "transcript_dir", kind="path_or_none")
 
+        apply("GGBOT_PROMPT_PROFILE", "prompt_profile", kind="str")
+        apply("GGBOT_PROMPT_DIR", "prompt_dir", kind="path_or_none")
+
         apply("GGBOT_SHELL_CONFIRM", "shell_confirm", kind="bool")
         apply("GGBOT_SHELL_TIMEOUT_MS", "shell_timeout_ms", kind="int")
         apply("GGBOT_SHELL_MAX_OUTPUT_CHARS", "shell_max_output_chars", kind="int")
@@ -136,6 +143,7 @@ class Settings(BaseSettings):
         ggbot = (data.get("ggbot") or {}) if isinstance(data.get("ggbot"), dict) else {}
         shell = (data.get("shell") or {}) if isinstance(data.get("shell"), dict) else {}
         transcript = (data.get("transcript") or {}) if isinstance(data.get("transcript"), dict) else {}
+        prompt = (data.get("prompt") or {}) if isinstance(data.get("prompt"), dict) else {}
 
         cls._apply_if_env_missing(settings, "OPENAI_BASE_URL", "openai_base_url", openai.get("base_url"))
         cls._apply_if_env_missing(settings, "OPENAI_API_KEY", "openai_api_key", openai.get("api_key"))
@@ -164,6 +172,12 @@ class Settings(BaseSettings):
         td = transcript.get("dir")
         if td is not None and "GGBOT_TRANSCRIPT_DIR" not in os.environ:
             settings.transcript_dir = Path(str(td))
+
+        cls._apply_if_env_missing(settings, "GGBOT_PROMPT_PROFILE", "prompt_profile", prompt.get("profile"))
+
+        pd = prompt.get("dir")
+        if pd is not None and "GGBOT_PROMPT_DIR" not in os.environ:
+            settings.prompt_dir = Path(str(pd))
 
         cls._apply_if_env_missing(settings, "GGBOT_SHELL_CONFIRM", "shell_confirm", shell.get("confirm"))
         cls._apply_if_env_missing(settings, "GGBOT_SHELL_TIMEOUT_MS", "shell_timeout_ms", shell.get("timeout_ms"))

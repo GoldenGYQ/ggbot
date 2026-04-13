@@ -14,6 +14,7 @@ from textual.containers import Horizontal
 from textual.widgets import Footer, Header, Input, RichLog, Static
 
 from ..core.config import Settings
+from ..core.prompts import PromptManager
 from ..core.session_meta import (
     SessionMeta,
     increment_user_turn,
@@ -102,10 +103,15 @@ def _register_builtin_tools(
     )
 
 
-def _ensure_message_bootstrap(messages: list[ChatMessage], transcript: Transcript) -> None:
+def _ensure_message_bootstrap(
+    messages: list[ChatMessage],
+    transcript: Transcript,
+    *,
+    system_message: ChatMessage | None = None,
+) -> None:
     if messages and messages[0].role == "system":
         return
-    msg = _default_system_message()
+    msg = system_message or _default_system_message()
     messages.insert(0, msg)
     transcript.append("model_message", msg.model_dump(exclude_none=True))
 
@@ -116,6 +122,7 @@ class _Runtime:
     session_id: str
     transcript: Transcript
     messages: list[ChatMessage]
+    system_message: ChatMessage
     registry: ToolRegistry
     client: ChatCompletionClient
 
@@ -569,7 +576,7 @@ class GGbotTui(App[None]):
         session = open_session(transcript_dir=transcript_dir, session_id=session_id)
         transcript = Transcript(path=session.path)
         messages = load_model_messages(transcript)
-        _ensure_message_bootstrap(messages, transcript)
+        _ensure_message_bootstrap(messages, transcript, system_message=self.runtime.system_message)
 
         self.runtime.session_id = session_id
         self.runtime.transcript = transcript
@@ -598,7 +605,11 @@ class GGbotTui(App[None]):
 
         clear_transcript(self.runtime.transcript)
         self.runtime.messages = []
-        _ensure_message_bootstrap(self.runtime.messages, self.runtime.transcript)
+        _ensure_message_bootstrap(
+            self.runtime.messages,
+            self.runtime.transcript,
+            system_message=self.runtime.system_message,
+        )
 
         self._session_meta[self.runtime.session_id] = SessionMeta(session_id=self.runtime.session_id)
         save_session_meta(self._transcript_dir, self._session_meta)
@@ -794,9 +805,6 @@ def run_tui(*, resume: str | None = None, workspace_root: Path | None = None) ->
     session = open_session(transcript_dir=settings.resolved_transcript_dir(), session_id=session_id)
     transcript = Transcript(path=session.path)
 
-    messages = load_model_messages(transcript)
-    _ensure_message_bootstrap(messages, transcript)
-
     registry = ToolRegistry()
     confirm_holder: dict[str, Callable[[str], str | None]] = {}
 
@@ -812,6 +820,15 @@ def run_tui(*, resume: str | None = None, workspace_root: Path | None = None) ->
         shell_confirm_callback=shell_confirm_callback if settings.shell_confirm else None,
     )
 
+    prompt_manager = PromptManager(settings=settings)
+    system_message = prompt_manager.build_system_message(
+        mode="tui",
+        tool_names=[spec.name for spec in registry.specs()],
+    )
+
+    messages = load_model_messages(transcript)
+    _ensure_message_bootstrap(messages, transcript, system_message=system_message)
+
     client = make_llm_client(settings)
 
     runtime = _Runtime(
@@ -819,6 +836,7 @@ def run_tui(*, resume: str | None = None, workspace_root: Path | None = None) ->
         session_id=session_id,
         transcript=transcript,
         messages=messages,
+        system_message=system_message,
         registry=registry,
         client=client,
     )
