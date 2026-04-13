@@ -34,6 +34,9 @@ class ChatMessage(BaseModel):
     # thinking message fields (for models that support thinking/reasoning)
     thinking: str | None = None
 
+    # raw content from model (for debugging and analysis)
+    raw_content: str | None = None
+
 
 class AssistantFinal(BaseModel):
     content: str = ""

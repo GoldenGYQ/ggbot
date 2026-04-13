@@ -14,6 +14,7 @@ from .status_tool import make_status_tool
 from .http_tools import make_http_tools
 from .workspace_tools import make_workspace_tools
 from .time_tools import make_time_tools
+from .search_tools import make_search_tools
 
 
 ShellConfirmCallback = Callable[[str], str | None]
@@ -97,6 +98,9 @@ class ToolManager:
         # 时间工具
         get_current_time, get_date_info, get_timezone_list = make_time_tools()
 
+        # 搜索工具
+        enhanced_search, search_with_content = make_search_tools()
+
         # 注册所有工具
         self._registry.register_all(
             (
@@ -116,6 +120,8 @@ class ToolManager:
                 get_current_time,
                 get_date_info,
                 get_timezone_list,
+                enhanced_search,
+                search_with_content,
             )
         )
 

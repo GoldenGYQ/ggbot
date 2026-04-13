@@ -1,0 +1,44 @@
+{
+  "year": 2025,
+  "market": "中国智能手机市场",
+  "data_source": "模拟数据（基于市场趋势预测）",
+  "brands": [
+    {
+      "brand": "华为",
+      "market_share": 28.5,
+      "description": "凭借麒麟芯片回归和5G技术优势，市场份额持续增长"
+    },
+    {
+      "brand": "小米",
+      "market_share": 19.2,
+      "description": "性价比策略和IoT生态优势保持稳定份额"
+    },
+    {
+      "brand": "OPPO",
+      "market_share": 16.8,
+      "description": "线下渠道优势和影像技术创新"
+    },
+    {
+      "brand": "vivo",
+      "market_share": 15.3,
+      "description": "年轻用户群体和自拍技术优势"
+    },
+    {
+      "brand": "苹果",
+      "market_share": 12.7,
+      "description": "高端市场主导地位，iPhone系列稳定"
+    },
+    {
+      "brand": "荣耀",
+      "market_share": 5.2,
+      "description": "独立后快速恢复，中端市场表现强劲"
+    },
+    {
+      "brand": "其他品牌",
+      "market_share": 2.3,
+      "description": "包括realme、一加、三星等品牌"
+    }
+  ],
+  "total_market_size": "约3.2亿台",
+  "note": "数据为2025年预测值，实际数据可能有所变化"
+}

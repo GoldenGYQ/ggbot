@@ -157,8 +157,40 @@ def make_http_tools(*, transport: httpx.BaseTransport | httpx.AsyncBaseTransport
 
         url = base + "?" + urlencode(params)
 
-        async with httpx.AsyncClient(follow_redirects=True, transport=async_transport) as client:
-            resp = await client.get(url, timeout=15.0)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        }
+
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            transport=async_transport,
+            headers=headers,
+            timeout=30.0
+        ) as client:
+            resp = await client.get(url)
+
+        # 检查响应状态
+        if resp.status_code != 200:
+            ctx.emit(
+                "status",
+                {
+                    "message": f"DuckDuckGo搜索失败: 状态码 {resp.status_code}",
+                    "stage": "search_error",
+                },
+            )
+            # 返回空结果而不是失败
+            return {
+                "query": args.query,
+                "results": [],
+                "fetched_url": url,
+                "error": f"HTTP {resp.status_code}",
+            }
 
         results = _parse_ddg_lite_html(resp.text or "", max_results=args.max_results)
         return {

@@ -325,6 +325,7 @@ def run_query(
         # Parse thinking content if enabled
         thinking_content = None
         final_content = assistant_final.content or ""
+        raw_content = assistant_final.content or ""  # 保存原始内容
 
         if thinking_enabled and final_content:
             # Try to extract thinking content from model output
@@ -341,6 +342,7 @@ def run_query(
                     role="thinking",
                     content=thinking_content,
                     thinking=thinking_content,
+                    raw_content=raw_content,  # 添加原始内容
                 )
                 messages.append(thinking_msg)
                 transcript.append("model_message", thinking_msg.model_dump(exclude_none=True))
@@ -349,6 +351,7 @@ def run_query(
                     {
                         "content": thinking_content,
                         "content_len": len(thinking_content),
+                        "raw_content": raw_content,  # 添加原始内容
                     },
                 )
 
@@ -356,6 +359,7 @@ def run_query(
             role="assistant",
             content=final_content,
             tool_calls=assistant_final.tool_calls or None,
+            raw_content=raw_content,  # 添加原始内容
         )
         messages.append(assistant_msg)
         transcript.append("model_message", assistant_msg.model_dump(exclude_none=True))
