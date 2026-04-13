@@ -52,8 +52,8 @@ From repo root:
 - `ggbot chat "hello"` 
 - `ggbot repl`
 - `ggbot tui`
-- `ggbot log` （print the recent logs）
-- `ggbot log --follow`(view transcript log in terminal)
+- `ggbot log` (view recent transcript events)
+- `ggbot log --follow` (follow transcript events in terminal)
 
 In REPL, you can create project folders inside the current workspace via:
 
@@ -66,6 +66,8 @@ In TUI:
 - `/clear-screen` only clears visible screen output.
 
 Log viewer examples:
+
+GGbot uses transcript JSONL as the single runtime log source.
 
 - `ggbot log` (open the most recent session log)
 - `ggbot log --session repl`
