@@ -1,44 +1,59 @@
 {
   "year": 2025,
   "market": "中国智能手机市场",
-  "data_source": "模拟数据（基于市场趋势预测）",
+  "data_source": "IDC 2025年手机出货量报告",
+  "total_shipments": 2.85,
+  "total_shipments_unit": "亿部",
   "brands": [
     {
-      "brand": "华为",
-      "market_share": 28.5,
-      "description": "凭借麒麟芯片回归和5G技术优势，市场份额持续增长"
+      "name": "华为",
+      "market_share": 16.4,
+      "shipments": 4670,
+      "shipments_unit": "万台",
+      "rank": 1
     },
     {
-      "brand": "小米",
-      "market_share": 19.2,
-      "description": "性价比策略和IoT生态优势保持稳定份额"
+      "name": "苹果",
+      "market_share": 16.2,
+      "shipments": 4620,
+      "shipments_unit": "万台",
+      "rank": 2
     },
     {
-      "brand": "OPPO",
-      "market_share": 16.8,
-      "description": "线下渠道优势和影像技术创新"
+      "name": "vivo",
+      "market_share": 16.2,
+      "shipments": 4610,
+      "shipments_unit": "万台",
+      "rank": 2
     },
     {
-      "brand": "vivo",
-      "market_share": 15.3,
-      "description": "年轻用户群体和自拍技术优势"
+      "name": "小米",
+      "market_share": 15.5,
+      "shipments": 4380,
+      "shipments_unit": "万台",
+      "rank": 4
     },
     {
-      "brand": "苹果",
-      "market_share": 12.7,
-      "description": "高端市场主导地位，iPhone系列稳定"
+      "name": "OPPO",
+      "market_share": 15.5,
+      "shipments": 4340,
+      "shipments_unit": "万台",
+      "rank": 5
     },
     {
-      "brand": "荣耀",
-      "market_share": 5.2,
-      "description": "独立后快速恢复，中端市场表现强劲"
+      "name": "荣耀",
+      "market_share": 10.0,
+      "shipments": 2850,
+      "shipments_unit": "万台",
+      "rank": 6
     },
     {
-      "brand": "其他品牌",
-      "market_share": 2.3,
-      "description": "包括realme、一加、三星等品牌"
+      "name": "其他品牌",
+      "market_share": 10.2,
+      "shipments": 2907,
+      "shipments_unit": "万台",
+      "rank": 7
     }
   ],
-  "total_market_size": "约3.2亿台",
-  "note": "数据为2025年预测值，实际数据可能有所变化"
+  "notes": "数据基于IDC 2025年中国智能手机市场报告，部分数据为估算值以确保总和为100%"
 }

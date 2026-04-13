@@ -11,7 +11,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from loguru import logger
 from pydantic import BaseModel, Field
 
 from ggbot.tools.context import ToolContext
@@ -91,7 +90,6 @@ async def _search_brave(query: str, n: int, ctx: ToolContext | None = None) -> s
     if not api_key:
         if ctx:
             ctx.emit("status", {"message": "BRAVE_API_KEY not set, falling back to DuckDuckGo", "stage": "search_fallback"})
-        logger.warning("BRAVE_API_KEY not set, falling back to DuckDuckGo")
         return await _search_duckduckgo(query, n, ctx)
 
     try:
@@ -118,7 +116,6 @@ async def _search_tavily(query: str, n: int, ctx: ToolContext | None = None) -> 
     if not api_key:
         if ctx:
             ctx.emit("status", {"message": "TAVILY_API_KEY not set, falling back to DuckDuckGo", "stage": "search_fallback"})
-        logger.warning("TAVILY_API_KEY not set, falling back to DuckDuckGo")
         return await _search_duckduckgo(query, n, ctx)
 
     try:
@@ -141,7 +138,6 @@ async def _search_searxng(query: str, n: int, ctx: ToolContext | None = None) ->
     if not base_url:
         if ctx:
             ctx.emit("status", {"message": "SEARXNG_BASE_URL not set, falling back to DuckDuckGo", "stage": "search_fallback"})
-        logger.warning("SEARXNG_BASE_URL not set, falling back to DuckDuckGo")
         return await _search_duckduckgo(query, n, ctx)
 
     endpoint = f"{base_url.rstrip('/')}/search"
@@ -169,7 +165,6 @@ async def _search_jina(query: str, n: int, ctx: ToolContext | None = None) -> st
     if not api_key:
         if ctx:
             ctx.emit("status", {"message": "JINA_API_KEY not set, falling back to DuckDuckGo", "stage": "search_fallback"})
-        logger.warning("JINA_API_KEY not set, falling back to DuckDuckGo")
         return await _search_duckduckgo(query, n, ctx)
 
     try:
@@ -207,7 +202,8 @@ async def _search_duckduckgo(query: str, n: int, ctx: ToolContext | None = None)
         ]
         return _format_results(query, items, n)
     except Exception as e:
-        logger.warning("DuckDuckGo search failed: {}", e)
+        if ctx:
+            ctx.emit("status", {"message": f"DuckDuckGo search failed: {e}", "stage": "search_error"})
         return f"Error: DuckDuckGo search failed ({e})"
 
 
@@ -246,7 +242,6 @@ async def _fetch_jina(url: str, max_chars: int, ctx: ToolContext | None = None) 
             if r.status_code == 429:
                 if ctx:
                     ctx.emit("status", {"message": "Jina Reader rate limited, falling back to readability", "stage": "fetch_fallback"})
-                logger.debug("Jina Reader rate limited, falling back to readability")
                 return None
             r.raise_for_status()
 
@@ -271,7 +266,6 @@ async def _fetch_jina(url: str, max_chars: int, ctx: ToolContext | None = None) 
     except Exception as e:
         if ctx:
             ctx.emit("status", {"message": f"Jina Reader failed, falling back to readability: {e}", "stage": "fetch_fallback"})
-        logger.debug("Jina Reader failed for {}, falling back to readability: {}", url, e)
         return None
 
 
@@ -329,10 +323,12 @@ async def _fetch_readability(url: str, extract_mode: str, max_chars: int, ctx: T
             "untrusted": True, "text": text,
         }, ensure_ascii=False)
     except httpx.ProxyError as e:
-        logger.error("WebFetch proxy error for {}: {}", url, e)
+        if ctx:
+            ctx.emit("status", {"message": f"WebFetch proxy error: {e}", "stage": "fetch_error"})
         return json.dumps({"error": f"Proxy error: {e}", "url": url}, ensure_ascii=False)
     except Exception as e:
-        logger.error("WebFetch error for {}: {}", url, e)
+        if ctx:
+            ctx.emit("status", {"message": f"WebFetch error: {e}", "stage": "fetch_error"})
         return json.dumps({"error": str(e), "url": url}, ensure_ascii=False)
 
 

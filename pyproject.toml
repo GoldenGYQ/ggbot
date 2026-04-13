@@ -13,7 +13,6 @@ dependencies = [
   "textual>=0.70",
   "readability-lxml>=0.8.1",
   "ddgs>=6.1.0",
-  "loguru>=0.7",
 ]
 
 [project.optional-dependencies]
