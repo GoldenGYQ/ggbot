@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from ..core.events import transcript_event
 from ..core.transcript import Transcript
 
 
@@ -28,4 +29,4 @@ class ToolContext:
         return replace(self, tool_name=tool_name, tool_call_id=tool_call_id)
 
     def emit(self, event_type: str, data: dict[str, Any]) -> None:
-        self.transcript.append(event_type, data)
+        self.transcript.append_event(transcript_event(event_type, data))

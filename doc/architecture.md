@@ -219,6 +219,28 @@ sequenceDiagram
 
 CLI 可用：`ggbot log --follow --events` 实时查看这些事件。
 
+## Transport 协议边界（WebSocket/HTTP）
+
+为支持未来 React CLI/Web UI 或远程客户端，核心层新增了稳定的 transport 事件信封（见 `ggbot/core/transport_protocol.py`）。
+
+- 协议版本：`version=1`
+- 事件序号：`seq`（单连接/单会话内单调递增）
+- 会话标识：`session_id`
+- 时间戳：`ts_ms`
+- 事件来源：`source`（如 `agent_runtime` / `query_loop`）
+- 事件类型：`event_type`（复用 runtime/transcript 事件类型）
+- 负载：`data`（事件 payload）
+
+这样做的目的：
+- 核心 query loop 不依赖传输层（WebSocket/HTTP/stdio）
+- 适配层只需消费统一 envelope，而不是直接耦合内部对象
+- 前后端可以通过 `version` 做兼容协商，降低二次开发破坏风险
+
+当前状态：
+- 已提供 runtime events -> transport envelopes 的编码器
+- 已提供 NDJSON 序列化与反序列化校验
+- 具体 WebSocket/HTTP Server 仍可作为下一步适配层实现
+
 ## 工具约定
 
 ### Schema

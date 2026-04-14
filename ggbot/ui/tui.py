@@ -4,7 +4,6 @@ import json
 import time
 import tracemalloc
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
 from collections.abc import Callable
@@ -15,76 +14,27 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Footer, Header, Input, RichLog, Static
 
-from ..core.config import Settings
-from ..prompts import PromptManager
-from ..core.session_meta import (
-    SessionMeta,
-    increment_user_turn,
-    load_all as load_session_meta,
-    save_all as save_session_meta,
-    set_title as set_session_title,
-)
 from ..core.sessions import default_sessions
 from ..core.agent_loop import run_query
 from ..core.agent_loop import ToolLimits
-from ..core.transcript import Transcript, clear_transcript, load_model_messages, open_session
+from ..core.runtime import (
+    AgentRuntime,
+    create_agent_bootstrap,
+    create_app_session,
+    ensure_message_bootstrap,
+    reset_runtime_history,
+    switch_runtime_session,
+)
+from ..core.runtime_events import consume_runtime_events
+from ..core.session_store import SessionStore
+from ..core.transcript import Transcript
 from ..core.types import ChatMessage
-from ..core.client_factory import make_llm_client
-from ..providers.types import ChatCompletionClient
-from ..tools.manager import create_tool_manager
 from ..tools.context import ToolContext
-from ..tools.registry import ToolRegistry
 from .pets import PetBones, Species, list_species, render_sprite
 
 
 def _new_session_id() -> str:
     return uuid.uuid4().hex
-
-
-def _most_recent_session_id(transcript_dir: Path) -> str | None:
-    candidates = list(transcript_dir.glob("*.jsonl"))
-    if not candidates:
-        return None
-    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return candidates[0].stem
-
-
-def _default_system_message() -> ChatMessage:
-    return ChatMessage(
-        role="system",
-        content=(
-            "You are GGbot, a helpful coding CLI agent. "
-            "Use available tools when needed. "
-            "When using tools, be concise and safe."
-        ),
-    )
-
-
-
-
-def _ensure_message_bootstrap(
-    messages: list[ChatMessage],
-    transcript: Transcript,
-    *,
-    system_message: ChatMessage | None = None,
-) -> None:
-    if messages and messages[0].role == "system":
-        return
-    msg = system_message or _default_system_message()
-    messages.insert(0, msg)
-    transcript.append("model_message", msg.model_dump(exclude_none=True))
-
-
-@dataclass
-class _Runtime:
-    settings: Settings
-    session_id: str
-    transcript: Transcript
-    messages: list[ChatMessage]
-    system_message: ChatMessage
-    registry: ToolRegistry
-    client: ChatCompletionClient
-
 
 _GYQ666_LOGO_LINES = [
     " █████  █     █   █████     █████   █████   █████ ",
@@ -167,7 +117,7 @@ class GGbotTui(App[None]):
         ("ctrl+down", "scroll_log_down", "Scroll Down"),
     ]
 
-    def __init__(self, runtime: _Runtime) -> None:
+    def __init__(self, runtime: AgentRuntime) -> None:
         super().__init__()
         self.runtime = runtime
         self._assistant_stream_buffer: str | None = None
@@ -176,11 +126,8 @@ class GGbotTui(App[None]):
         self._pending_clear_confirm: bool = False
         self._busy: bool = False
         self._status_updates: list[str] = []
-        self._transcript_dir = self.runtime.settings.resolved_transcript_dir()
-        self._session_meta: dict[str, SessionMeta] = load_session_meta(self._transcript_dir)
-        if self.runtime.session_id not in self._session_meta:
-            self._session_meta[self.runtime.session_id] = SessionMeta(session_id=self.runtime.session_id)
-            save_session_meta(self._transcript_dir, self._session_meta)
+        self._session_store = SessionStore.load(self.runtime.settings.resolved_transcript_dir())
+        self._session_store.ensure_saved(self.runtime.session_id)
         # Thinking functionality
         self._thinking_enabled: bool = self.runtime.settings.thinking_enabled
         # Current conversation turn tracking
@@ -288,7 +235,7 @@ class GGbotTui(App[None]):
                     self._append_system(msg.content)
 
     def _render_status(self) -> None:
-        meta = self._session_meta.get(self.runtime.session_id)
+        meta = self._session_store.metas.get(self.runtime.session_id)
         title = (meta.title if meta else "Untitled").strip() or "Untitled"
         thinking_status = "🧠" if self._thinking_enabled else ""
 
@@ -482,10 +429,10 @@ class GGbotTui(App[None]):
             self._append_system("Busy running a query; wait before switching sessions.")
             return True
 
-        transcript_dir = self._transcript_dir
+        transcript_dir = self.runtime.settings.resolved_transcript_dir()
         defaults = default_sessions(workspace_root=self.runtime.settings.workspace_root, transcript_dir=transcript_dir)
 
-        sessions = self._list_sessions(defaults)
+        sessions = self._session_store.list_sessions(defaults)
 
         if not arg or arg.lower() in {"list", "ls"}:
             self._append_system(f"Current session: {self.runtime.session_id}")
@@ -493,7 +440,7 @@ class GGbotTui(App[None]):
             if sessions:
                 self._append_system("Sessions:")
                 for idx, sid in enumerate(sessions, start=1):
-                    title = self._session_title_for_list(sid)
+                    title = self._session_store.title_for_list(sid)
                     label = sid
                     if sid == defaults.repl:
                         label = "repl"
@@ -529,80 +476,11 @@ class GGbotTui(App[None]):
         self._switch_session(target)
         return True
 
-    def _list_sessions(self, defaults) -> list[str]:
-        transcript_dir = self._transcript_dir
-        existing = [p.stem for p in transcript_dir.glob("*.jsonl")]
-        # Prefer most recently modified first.
-        def mtime(sid: str) -> float:
-            p = transcript_dir / f"{sid}.jsonl"
-            try:
-                return p.stat().st_mtime
-            except Exception:
-                return 0.0
-
-        existing_sorted = sorted(existing, key=mtime, reverse=True)
-        # Ensure defaults are always first.
-        out: list[str] = []
-        for sid in (defaults.repl, defaults.chat, defaults.tui):
-            if sid not in out:
-                out.append(sid)
-        for sid in existing_sorted:
-            if sid not in out:
-                out.append(sid)
-        return out
-
-    def _first_user_message(self, session_id: str) -> str | None:
-        path = self._transcript_dir / f"{session_id}.jsonl"
-        if not path.exists():
-            return None
-        try:
-            with path.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        ev = json.loads(line)
-                    except Exception:
-                        continue
-                    if ev.get("type") != "model_message":
-                        continue
-                    data = ev.get("data") or {}
-                    if not isinstance(data, dict):
-                        continue
-                    if data.get("role") == "user" and data.get("content"):
-                        return str(data.get("content"))
-        except Exception:
-            return None
-        return None
-
-    def _session_title_for_list(self, session_id: str) -> str:
-        meta = self._session_meta.get(session_id)
-        if meta is not None and meta.title:
-            return meta.title
-        first = self._first_user_message(session_id)
-        if first:
-            first = " ".join(first.strip().split())
-            return first[:60] + ("..." if len(first) > 60 else "")
-        return "Untitled"
-
     def _switch_session(self, session_id: str) -> None:
-        transcript_dir = self._transcript_dir
-        session = open_session(transcript_dir=transcript_dir, session_id=session_id)
-        transcript = Transcript(path=session.path)
-        messages = load_model_messages(transcript)
-        _ensure_message_bootstrap(messages, transcript, system_message=self.runtime.system_message)
-
-        self.runtime.session_id = session_id
-        self.runtime.transcript = transcript
-        self.runtime.messages = messages
+        loaded = switch_runtime_session(self.runtime, session_id=session_id)
 
         # Ensure meta exists
-        if session_id not in self._session_meta:
-            self._session_meta = load_session_meta(self._transcript_dir)
-        if session_id not in self._session_meta:
-            self._session_meta[session_id] = SessionMeta(session_id=session_id)
-            save_session_meta(self._transcript_dir, self._session_meta)
+        self._session_store.ensure_saved(session_id)
 
         self.query_one(RichLog).clear()
         self.query_one("#stream", Static).update("")
@@ -611,23 +489,16 @@ class GGbotTui(App[None]):
         self._render_history_bootstrap()
         self._render_loaded_history()
         self._render_status()
-        self._append_system(f"Switched session to {session_id} (loaded {len(messages)} messages).")
+        self._append_system(f"Switched session to {session_id} (loaded {loaded} messages).")
 
     def _clear_current_session_history(self) -> None:
         if self._busy:
             self._append_system("Busy running a query; wait before clearing history.")
             return
 
-        clear_transcript(self.runtime.transcript)
-        self.runtime.messages = []
-        _ensure_message_bootstrap(
-            self.runtime.messages,
-            self.runtime.transcript,
-            system_message=self.runtime.system_message,
-        )
+        reset_runtime_history(self.runtime)
 
-        self._session_meta[self.runtime.session_id] = SessionMeta(session_id=self.runtime.session_id)
-        save_session_meta(self._transcript_dir, self._session_meta)
+        self._session_store.clear_session(self.runtime.session_id)
 
         self.query_one(RichLog).clear()
         self.query_one("#stream", Static).update("")
@@ -687,8 +558,7 @@ class GGbotTui(App[None]):
         self._append_user(text)
         self._reset_stream()
         self._busy = True
-        turn_no = increment_user_turn(self._session_meta, self.runtime.session_id)
-        save_session_meta(self._transcript_dir, self._session_meta)
+        turn_no = self._session_store.increment_user_turn(self.runtime.session_id)
         # Generate / refresh title on turn 1, 51, 101, ... based on this turn's first message.
         should_title = (turn_no - 1) % 50 == 0
         # Reset current conversation turn
@@ -750,8 +620,7 @@ class GGbotTui(App[None]):
                 title = None
 
             if title:
-                set_session_title(self._session_meta, self.runtime.session_id, title=title, title_gen_turn=turn_no)
-                save_session_meta(self._transcript_dir, self._session_meta)
+                self._session_store.set_title(self.runtime.session_id, title=title, title_gen_turn=turn_no)
 
                 def update_title() -> None:
                     self._render_status()
@@ -782,7 +651,14 @@ class GGbotTui(App[None]):
                 ),
                 thinking_enabled=self._thinking_enabled,
             )
-            # Update current conversation turn
+            consume_runtime_events(
+                result.events,
+                on_turn_update=lambda data: setattr(self, "_current_conversation_turn", int(data.get("current_turn") or 0)),
+                on_turn_complete=lambda data: setattr(self, "_current_conversation_turn", int(data.get("turns_used") or result.turns_used)),
+                on_provider_error=lambda data: self.call_from_thread(
+                    lambda: self._append_system(f"Provider error: {data.get('error', 'unknown')}")
+                ),
+            )
             self._current_conversation_turn = result.turns_used
         except Exception as e:
             def write_error() -> None:
@@ -833,23 +709,16 @@ class GGbotTui(App[None]):
 
 
 def run_tui(*, resume: str | None = None, workspace_root: Path | None = None) -> None:
-    settings = Settings.load(workspace_root=workspace_root)
-    if workspace_root is not None:
-        settings.workspace_root = workspace_root
-
-    defaults = default_sessions(
-        workspace_root=settings.workspace_root,
-        transcript_dir=settings.resolved_transcript_dir(),
+    app_session = create_app_session(
+        workspace_root=workspace_root,
+        resume=resume,
+        default_session_name="tui",
+        prefer_recent=True,
     )
-    if resume is not None:
-        session_id = resume
-    else:
-        recent = _most_recent_session_id(settings.resolved_transcript_dir())
-        session_id = recent or defaults.tui
-    session = open_session(transcript_dir=settings.resolved_transcript_dir(), session_id=session_id)
-    transcript = Transcript(path=session.path)
+    settings = app_session.settings
+    session_id = app_session.session_id
+    transcript = app_session.transcript
 
-    registry = ToolRegistry()
     confirm_holder: dict[str, Callable[[str], str | None]] = {}
 
     def shell_confirm_callback(cmd: str) -> str | None:
@@ -858,37 +727,18 @@ def run_tui(*, resume: str | None = None, workspace_root: Path | None = None) ->
             return "Cancelled: TUI not ready for confirmation."
         return cb(cmd)
 
-    # 使用新的ToolManager
-    tool_manager = create_tool_manager(
-        settings,
-        shell_confirm_callback=shell_confirm_callback if settings.shell_confirm else None,
-    )
-    registry = tool_manager.registry
-
-    prompt_manager = PromptManager(settings=settings)
-    system_message = prompt_manager.build_system_message(
-        mode="tui",
-        tool_specs=registry.specs(),
-    )
-
-    messages = load_model_messages(transcript)
-    _ensure_message_bootstrap(messages, transcript, system_message=system_message)
-
-    client = make_llm_client(settings)
-
-    runtime = _Runtime(
+    bootstrap = create_agent_bootstrap(
         settings=settings,
         session_id=session_id,
         transcript=transcript,
-        messages=messages,
-        system_message=system_message,
-        registry=registry,
-        client=client,
+        mode="tui",
+        shell_confirm_callback=shell_confirm_callback if settings.shell_confirm else None,
     )
+    runtime = bootstrap.runtime
 
     try:
         app = GGbotTui(runtime)
         confirm_holder["cb"] = app.confirm_shell_run
         app.run()
     finally:
-        client.close()
+        bootstrap.client.close()

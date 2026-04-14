@@ -10,6 +10,7 @@
 
 - 项目入口（先读这个）：[README.md](../README.md)
 - 架构与数据流：[architecture.md](architecture.md)
+- 通用 Agent 迁移映射：[agent_migration_map.md](agent_migration_map.md)
 - 开发指南：[development.md](development.md)
 - 配置与运行（LiteLLM / 环境变量 / transcript）：[configuration.md](configuration.md)
 - 安全与权限边界（workspace sandbox、shell/network 风险）：[security.md](security.md)

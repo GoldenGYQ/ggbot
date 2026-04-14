@@ -8,15 +8,12 @@ from pathlib import Path
 
 import typer
 
-from ggbot.core.config import Settings
-from ggbot.core.client_factory import make_llm_client
-from ggbot.prompts import PromptManager
-from ggbot.core.sessions import default_sessions
 from ggbot.core.agent_loop import ToolLimits, run_query
-from ggbot.tools.manager import create_tool_manager
+from ggbot.core.runtime import create_agent_bootstrap, create_app_session
+from ggbot.core.runtime_events import consume_runtime_events
 from ggbot.tools.context import ToolContext
 from ggbot.tools.registry import ToolRegistry
-from ggbot.core.transcript import Transcript, load_model_messages, open_session
+from ggbot.core.transcript import Transcript
 from ggbot.core.types import ChatMessage
 
 # ANSI color codes for log highlighting
@@ -400,50 +397,40 @@ def chat(
         help="Enable thinking/reasoning output. Overrides config setting.",
     ),
 ):
-    settings = Settings.load(workspace_root=workspace_root)
-    if workspace_root is not None:
-        settings.workspace_root = workspace_root
-
-    defaults = default_sessions(
-        workspace_root=settings.workspace_root,
-        transcript_dir=settings.resolved_transcript_dir(),
+    app_session = create_app_session(
+        workspace_root=workspace_root,
+        resume=resume,
+        default_session_name="chat",
     )
-    session_id = resume or defaults.chat
-    session = open_session(transcript_dir=settings.resolved_transcript_dir(), session_id=session_id)
-    transcript = Transcript(path=session.path)
-
-    messages = load_model_messages(transcript)
+    settings = app_session.settings
+    session_id = app_session.session_id
+    transcript = app_session.transcript
 
     # Determine thinking setting: command line overrides config
     thinking_enabled = settings.thinking_enabled
     if thinking is not None:
         thinking_enabled = thinking
 
-    # 使用新的ToolManager
-    tool_manager = create_tool_manager(settings)
-    registry = tool_manager.registry
-
-    prompt_manager = PromptManager(settings=settings)
-    system_message = prompt_manager.build_system_message(
+    bootstrap = create_agent_bootstrap(
+        settings=settings,
+        session_id=session_id,
+        transcript=transcript,
         mode="chat",
-        tool_specs=registry.specs(),
         thinking_enabled=thinking_enabled,
     )
-    _ensure_message_bootstrap(messages, transcript, system_message=system_message)
-
-    client = make_llm_client(settings)
+    runtime = bootstrap.runtime
 
     try:
-        tool_context = tool_manager.create_tool_context(
+        tool_context = bootstrap.tool_manager.create_tool_context(
             session_id=session_id,
             transcript=transcript,
             workspace_root=settings.workspace_root,
         )
-        run_query(
-            client=client,
-            registry=registry,
-            transcript=transcript,
-            messages=messages,
+        result = run_query(
+            client=runtime.client,
+            registry=runtime.registry,
+            transcript=runtime.transcript,
+            messages=runtime.messages,
             user_text=prompt,
             max_turns=settings.max_turns,
             stream_printer=_print_delta,
@@ -456,10 +443,14 @@ def chat(
             ),
             thinking_enabled=thinking_enabled,
         )
+        consume_runtime_events(
+            result.events,
+            on_provider_error=lambda data: print(f"provider_error: {data.get('error', 'unknown')}"),
+        )
         print("")
         print(f"\n[session_id={session_id}] transcript={transcript.path}")
     finally:
-        client.close()
+        bootstrap.client.close()
 
 
 @app.command()
@@ -477,44 +468,34 @@ def repl(
         help="Enable thinking/reasoning output. Overrides config setting.",
     ),
 ):
-    settings = Settings.load(workspace_root=workspace_root)
-    if workspace_root is not None:
-        settings.workspace_root = workspace_root
-
-    defaults = default_sessions(
-        workspace_root=settings.workspace_root,
-        transcript_dir=settings.resolved_transcript_dir(),
+    app_session = create_app_session(
+        workspace_root=workspace_root,
+        resume=resume,
+        default_session_name="repl",
     )
-    session_id = resume or defaults.repl
-    session = open_session(transcript_dir=settings.resolved_transcript_dir(), session_id=session_id)
-    transcript = Transcript(path=session.path)
-
-    messages = load_model_messages(transcript)
+    settings = app_session.settings
+    session_id = app_session.session_id
+    transcript = app_session.transcript
 
     # Determine thinking setting: command line overrides config
     thinking_enabled = settings.thinking_enabled
     if thinking is not None:
         thinking_enabled = thinking
 
-    # 使用新的ToolManager
-    tool_manager = create_tool_manager(settings)
-    registry = tool_manager.registry
-
-    prompt_manager = PromptManager(settings=settings)
-    system_message = prompt_manager.build_system_message(
+    bootstrap = create_agent_bootstrap(
+        settings=settings,
+        session_id=session_id,
+        transcript=transcript,
         mode="repl",
-        tool_specs=registry.specs(),
         thinking_enabled=thinking_enabled,
     )
-    _ensure_message_bootstrap(messages, transcript, system_message=system_message)
-
-    client = make_llm_client(settings)
+    runtime = bootstrap.runtime
 
     print(f"GGbot REPL  session_id={session_id}")
     print("Type /help for commands. Ctrl+C to exit.")
 
     try:
-        tool_context = tool_manager.create_tool_context(
+        tool_context = bootstrap.tool_manager.create_tool_context(
             session_id=session_id,
             transcript=transcript,
             workspace_root=settings.workspace_root,
@@ -531,14 +512,14 @@ def repl(
                 continue
 
             if line.startswith("/"):
-                _handle_slash(line, registry=registry, transcript=transcript, messages=messages)
+                _handle_slash(line, registry=runtime.registry, transcript=runtime.transcript, messages=runtime.messages)
                 continue
 
-            run_query(
-                client=client,
-                registry=registry,
-                transcript=transcript,
-                messages=messages,
+            result = run_query(
+                client=runtime.client,
+                registry=runtime.registry,
+                transcript=runtime.transcript,
+                messages=runtime.messages,
                 user_text=line,
                 max_turns=settings.max_turns,
                 stream_printer=_print_delta,
@@ -551,10 +532,14 @@ def repl(
                 ),
                 thinking_enabled=thinking_enabled,
             )
+            consume_runtime_events(
+                result.events,
+                on_provider_error=lambda data: print(f"provider_error: {data.get('error', 'unknown')}"),
+            )
             print("")
 
     finally:
-        client.close()
+        bootstrap.client.close()
         print(f"[session_id={session_id}] transcript={transcript.path}")
 
 
@@ -590,19 +575,16 @@ def log_view(
 ) -> None:
     """Show transcript log in a dedicated terminal view."""
 
-    settings = Settings.load(workspace_root=workspace_root)
-    if workspace_root is not None:
-        settings.workspace_root = workspace_root
-
-    transcript_dir = settings.resolved_transcript_dir()
-    defaults = default_sessions(
-        workspace_root=settings.workspace_root,
-        transcript_dir=transcript_dir,
+    app_session = create_app_session(
+        workspace_root=workspace_root,
+        resume=session,
+        default_session_name="repl",
+        prefer_recent=True,
     )
-
-    session_id = session or _most_recent_session_id(transcript_dir) or defaults.repl
-    session_info = open_session(transcript_dir=transcript_dir, session_id=session_id)
-    path = session_info.path
+    settings = app_session.settings
+    session_id = app_session.session_id
+    transcript_dir = settings.resolved_transcript_dir()
+    path = app_session.transcript.path
 
     if not path.exists():
         print(f"No transcript found for session_id={session_id}")

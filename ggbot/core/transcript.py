@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from .events import TranscriptEvent
 from .types import ChatMessage
 
 
@@ -37,6 +38,9 @@ class Transcript:
         }
         with self._path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(line, ensure_ascii=False) + "\n")
+
+    def append_event(self, event: TranscriptEvent) -> None:
+        self.append(event.type, event.data)
 
     def iter_events(self) -> Iterable[dict[str, Any]]:
         if not self._path.exists():
