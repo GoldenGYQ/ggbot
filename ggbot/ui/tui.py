@@ -8,14 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
 from collections.abc import Callable
-from typing import cast
 
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
-from textual.events import Key
-from textual.widgets import Footer, Header, RichLog, Static, TextArea
+from textual.widgets import Footer, Header, Input, RichLog, Static
 
 from ..core.config import Settings
 from ..prompts import PromptManager
@@ -86,35 +84,6 @@ class _Runtime:
     system_message: ChatMessage
     registry: ToolRegistry
     client: ChatCompletionClient
-
-
-class CommandInput(TextArea):
-    async def handle_key(self, event: Key) -> bool:
-        if event.key == "enter":
-            event.stop()
-            event.prevent_default()
-            cast(GGbotTui, self.app).action_submit_input()
-            return True
-        if event.key == "shift+enter":
-            event.stop()
-            event.prevent_default()
-            self.insert("\n")
-            return True
-        if event.key == "ctrl+enter":
-            event.stop()
-            event.prevent_default()
-            cast(GGbotTui, self.app).action_submit_keep_input()
-            return True
-        return await super().handle_key(event)
-
-    def action_submit_input(self) -> None:
-        cast(GGbotTui, self.app).action_submit_input()
-
-    def action_submit_keep_input(self) -> None:
-        cast(GGbotTui, self.app).action_submit_keep_input()
-
-    def action_insert_newline(self) -> None:
-        self.insert("\n")
 
 
 _GYQ666_LOGO_LINES = [
@@ -218,8 +187,8 @@ class GGbotTui(App[None]):
         self._current_conversation_turn: int = 0
         self._resource_status: str = "CPU:0.0s MEM:0.0MB"
 
-    def _input_widget(self) -> TextArea:
-        return self.query_one("#input", TextArea)
+    def _input_widget(self) -> Input:
+        return self.query_one("#input", Input)
 
     def _push_status_update(self, text: str) -> None:
         text = (text or "").strip()
@@ -243,13 +212,7 @@ class GGbotTui(App[None]):
 
         yield RichLog(id="log", wrap=True, highlight=False, markup=False)
         yield Static("", id="stream", markup=False)
-        yield CommandInput(
-            "",
-            id="input",
-            language="markdown",
-            show_line_numbers=False,
-            tab_behavior="indent",
-        )
+        yield Input(placeholder="Type a message. Use /help.", id="input")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -257,7 +220,6 @@ class GGbotTui(App[None]):
             tracemalloc.start()
         self.set_interval(1.5, self._update_resource_status)
         self._input_widget().focus()
-        self._input_widget().placeholder = "Enter: send | Shift+Enter: newline | Ctrl+Enter: run & keep"
         self._heal_pending_tool_calls()
         self._render_history_bootstrap()
         self._render_loaded_history()
@@ -695,7 +657,7 @@ class GGbotTui(App[None]):
                 self.query_one(RichLog).write(line)
 
             self._pending_shell_confirm = None
-            self._input_widget().placeholder = "Enter: send | Shift+Enter: newline | Ctrl+Enter: run & keep"
+            self._input_widget().placeholder = "Type a message. Use /help."
             self._render_status()
             ev.set()
             return
@@ -704,12 +666,12 @@ class GGbotTui(App[None]):
             answer = text.strip().lower()
             if answer in {"y", "yes"}:
                 self._pending_clear_confirm = False
-                self._input_widget().placeholder = "Enter: send | Shift+Enter: newline | Ctrl+Enter: run & keep"
+                self._input_widget().placeholder = "Type a message. Use /help."
                 self._clear_current_session_history()
                 return
             if answer in {"n", "no"}:
                 self._pending_clear_confirm = False
-                self._input_widget().placeholder = "Enter: send | Shift+Enter: newline | Ctrl+Enter: run & keep"
+                self._input_widget().placeholder = "Type a message. Use /help."
                 self._append_system("Cancelled /clear.")
                 self._render_status()
                 return
@@ -734,17 +696,10 @@ class GGbotTui(App[None]):
         self._render_status()
         self._run_query_in_worker(text, turn_no=turn_no, title_seed=text if should_title else None)
 
-    def action_submit_input(self) -> None:
-        text = self._input_widget().text.rstrip("\n")
-        self._input_widget().text = ""
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        text = event.value.rstrip("\n")
+        self._input_widget().value = ""
         self._submit_text(text)
-
-    def action_submit_keep_input(self) -> None:
-        text = self._input_widget().text.rstrip("\n")
-        self._submit_text(text)
-
-    def action_insert_newline(self) -> None:
-        self._input_widget().insert("\n")
 
     def action_copy_input(self) -> None:
         self._input_widget().action_copy()
