@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from .config import Settings
 from ..prompts import PromptManager
@@ -14,6 +14,7 @@ from ..providers.types import ChatCompletionClient
 from ..tools.registry import ToolRegistry
 from .events import transcript_event
 from .transcript import Transcript, clear_transcript, load_model_messages, open_session
+from .transcript_logger import create_transcript_logger
 from .types import ChatMessage
 
 
@@ -26,6 +27,12 @@ class AgentRuntime:
     system_message: ChatMessage
     registry: ToolRegistry
     client: ChatCompletionClient
+    transcript_logger: Any = None  # 将在创建时初始化
+
+    def __post_init__(self):
+        # 初始化 transcript 记录器
+        from .transcript_logger import create_transcript_logger
+        self.transcript_logger = create_transcript_logger(self.transcript)
 
 
 @dataclass(frozen=True)

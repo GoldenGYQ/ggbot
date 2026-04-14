@@ -29,8 +29,11 @@ from ..core.runtime_events import consume_runtime_events
 from ..core.session_store import SessionStore
 from ..core.transcript import Transcript
 from ..core.types import ChatMessage
+from ..core.domain import SessionState, PermissionDecision
+from ..core.event_handlers.base_handler import BaseEventHandler, create_base_event_handler
 from ..tools.context import ToolContext
 from .pets import PetBones, Species, list_species, render_sprite
+from .renderers.tui_renderer import create_tui_renderer
 
 
 def _new_session_id() -> str:
@@ -133,6 +136,79 @@ class GGbotTui(App[None]):
         # Current conversation turn tracking
         self._current_conversation_turn: int = 0
         self._resource_status: str = "CPU:0.0s MEM:0.0MB"
+        # Event handling with new architecture
+        self._event_handler = create_base_event_handler()  # 业务逻辑处理器
+        self._tui_renderer = create_tui_renderer(self)     # UI渲染器
+        self._debug_events: bool = False  # 设置为 True 可以调试事件流
+        # Permission prompt tracking
+        self._showing_permission_prompt: bool = False
+
+        # 自定义事件监听器（示例）
+        self._custom_listeners: list = []
+        self._setup_custom_event_listeners()
+
+    def _setup_custom_event_listeners(self):
+        """设置自定义事件监听器（示例）"""
+        from ..core.event_bus import subscribe_to_events
+        from ..core.domain import RuntimeEvent
+
+        # 示例1：监听所有事件并记录（调试用）
+        if self._debug_events:
+            def debug_listener(event: RuntimeEvent):
+                def log():
+                    self.query_one("RichLog").write(f"[debug:{event.type}]")
+                self.call_from_thread(log)
+
+            sub = subscribe_to_events(debug_listener)
+            self._custom_listeners.append(sub)
+
+        # 示例2：监听工具调用并统计
+        tool_call_count = 0
+
+        def tool_call_listener(event: RuntimeEvent):
+            nonlocal tool_call_count
+            if event.type == "tool_call":
+                tool_call_count += 1
+                def update_status():
+                    # 在状态栏显示工具调用计数
+                    self._push_status_update(f"工具调用: {tool_call_count}")
+                    self._render_top_right()
+                self.call_from_thread(update_status)
+
+        sub = subscribe_to_events(tool_call_listener, "tool_call")
+        self._custom_listeners.append(sub)
+
+        # 示例3：监听错误事件并特殊处理
+        def error_listener(event: RuntimeEvent):
+            if event.type == "error":
+                error_msg = event.data.get("error", "Unknown error")
+                def show_error():
+                    # 在日志中高亮显示错误
+                    from rich.text import Text
+                    self.query_one("RichLog").write(Text(f"❌ 错误: {error_msg}", style="bold red"))
+                    # 更新状态
+                    self._push_status_update(f"错误: {error_msg[:30]}...")
+                    self._render_status()
+                self.call_from_thread(show_error)
+
+        sub = subscribe_to_events(error_listener, "error")
+        self._custom_listeners.append(sub)
+
+    def __del__(self):
+        """清理事件处理器和渲染器"""
+        if hasattr(self, '_event_handler'):
+            self._event_handler.unsubscribe_all()
+        if hasattr(self, '_tui_renderer'):
+            self._tui_renderer.unsubscribe_all()
+        # 清理自定义监听器
+        for listener in getattr(self, '_custom_listeners', []):
+            listener.callback = None
+        # 清理权限提示状态
+        self._showing_permission_prompt = False
+        if self._pending_shell_confirm is not None:
+            _, ev, result = self._pending_shell_confirm
+            result["cancel"] = "Cancelled: TUI closing."
+            ev.set()
 
     def _input_widget(self) -> Input:
         return self.query_one("#input", Input)
@@ -235,6 +311,10 @@ class GGbotTui(App[None]):
                     self._append_system(msg.content)
 
     def _render_status(self) -> None:
+        # 如果正在显示权限提示，不更新状态行
+        if self._showing_permission_prompt:
+            return
+
         meta = self._session_store.metas.get(self.runtime.session_id)
         title = (meta.title if meta else "Untitled").strip() or "Untitled"
         thinking_status = "🧠" if self._thinking_enabled else ""
@@ -261,11 +341,42 @@ class GGbotTui(App[None]):
 
     def _render_permission_prompt(self, command: str) -> None:
         # Keep permission UX out of the chat log to avoid mixing prompts with conversation.
-        line = Text("[permission] ", style="bold yellow")
-        line.append("Allow shell_run? ")
-        line.append(command, style="bold")
-        line.append(" (y/n)")
-        self.query_one("#status_line", Static).update(line)
+        self._showing_permission_prompt = True
+
+        # 创建更显眼的权限提示
+        from rich.panel import Panel
+        from rich.align import Align
+
+        # 清理命令显示，确保可读性
+        clean_command = command.replace('\n', ' ').replace('\r', '').strip()
+        if len(clean_command) > 60:
+            clean_command = clean_command[:57] + "..."
+
+        # 创建醒目的提示面板
+        prompt_text = Text()
+        prompt_text.append("⚠️  SHELL PERMISSION REQUEST ⚠️\n\n", style="bold yellow")
+        prompt_text.append("Command to execute:\n", style="bold")
+        prompt_text.append(f"  {clean_command}\n\n", style="bold cyan")
+        prompt_text.append("Type ", style="")
+        prompt_text.append("y", style="bold green")
+        prompt_text.append(" to allow or ", style="")
+        prompt_text.append("n", style="bold red")
+        prompt_text.append(" to deny", style="")
+
+        # 创建居中的面板
+        panel = Panel(
+            Align.center(prompt_text),
+            border_style="yellow",
+            title="[bold]Permission Required[/bold]",
+            title_align="center"
+        )
+
+        # 在状态行显示固定提示
+        status_line = Text("🔒 PERMISSION REQUEST: Type 'y' to allow or 'n' to deny", style="bold yellow on dark_red")
+        self.query_one("#status_line", Static).update(status_line)
+
+        # 同时在日志中显示完整提示
+        self.query_one(RichLog).write(panel)
 
     def confirm_shell_run(self, command: str) -> str | None:
         """Ask for shell_run permission inside the TUI.
@@ -353,13 +464,33 @@ class GGbotTui(App[None]):
         if self._assistant_stream_buffer is None:
             self._assistant_stream_buffer = ""
             self.query_one(RichLog).write(Text("────────────────────────────────", style="dim"))
+
+        # 添加delta到缓冲区
         self._assistant_stream_buffer += delta
 
-        # RichLog doesn't support in-place editing. Instead we render the current
-        # assistant stream in a dedicated widget that we update.
-        self.query_one("#stream", Static).update(self._assistant_stream_buffer)
+        # 只在缓冲区达到一定长度或收到完整单词时更新显示
+        # 减少频繁更新造成的闪烁
+        should_update = (
+            len(self._assistant_stream_buffer) < 20 or  # 初始阶段频繁更新
+            delta.endswith(' ') or  # 单词结束
+            delta.endswith('\n') or  # 换行
+            delta.endswith('.') or delta.endswith(',') or  # 标点
+            delta.endswith('?') or delta.endswith('!')
+        )
+
+        if should_update:
+            # 清理可能的控制字符
+            clean_buffer = self._assistant_stream_buffer.replace('\r', '')
+            self.query_one("#stream", Static).update(clean_buffer)
 
     def _reset_stream(self) -> None:
+        # 如果有缓冲区内容，先写入日志
+        if self._assistant_stream_buffer and self._assistant_stream_buffer.strip():
+            clean_content = self._assistant_stream_buffer.replace('\r', '').strip()
+            if clean_content:
+                self.query_one(RichLog).write(clean_content)
+
+        # 重置缓冲区
         self._assistant_stream_buffer = None
         self.query_one("#stream", Static).update("")
 
@@ -514,18 +645,49 @@ class GGbotTui(App[None]):
         if self._pending_shell_confirm is not None:
             command, ev, result = self._pending_shell_confirm
             answer = text.strip().lower()
+
+            # 重置权限提示标志
+            self._showing_permission_prompt = False
+
             if answer in {"y", "yes"}:
                 result["cancel"] = None
-                line = Text("[permission] ", style="bold yellow")
-                line.append("Allowed: ", style="green")
-                line.append(command, style="bold")
-                self.query_one(RichLog).write(line)
+                # 在日志中显示允许结果
+                from rich.panel import Panel
+                from rich.align import Align
+                from rich.text import Text as RichText
+
+                allowed_text = RichText()
+                allowed_text.append("✅ PERMISSION GRANTED\n\n", style="bold green")
+                allowed_text.append("Command executed:\n", style="bold")
+                allowed_text.append(f"  {command}\n", style="cyan")
+
+                panel = Panel(
+                    Align.center(allowed_text),
+                    border_style="green",
+                    title="[bold]Permission Granted[/bold]",
+                    title_align="center"
+                )
+                self.query_one(RichLog).write(panel)
             else:
                 result["cancel"] = "Cancelled by user."
-                line = Text("[permission] ", style="bold yellow")
-                line.append("Denied: ", style="red")
-                line.append(command, style="bold")
-                self.query_one(RichLog).write(line)
+                # 在日志中显示拒绝结果
+                from rich.panel import Panel
+                from rich.align import Align
+                from rich.text import Text as RichText
+
+                denied_text = RichText()
+                denied_text.append("❌ PERMISSION DENIED\n\n", style="bold red")
+                denied_text.append("Command blocked:\n", style="bold")
+                denied_text.append(f"  {command}\n", style="cyan")
+                denied_text.append("\nUser cancelled the operation.", style="dim")
+
+                panel = Panel(
+                    Align.center(denied_text),
+                    border_style="red",
+                    title="[bold]Permission Denied[/bold]",
+                    title_align="center"
+                )
+                self.query_one(RichLog).write(panel)
 
             self._pending_shell_confirm = None
             self._input_widget().placeholder = "Type a message. Use /help."
@@ -568,7 +730,10 @@ class GGbotTui(App[None]):
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.rstrip("\n")
+        # 彻底清理输入框，包括任何隐藏的控制字符
         self._input_widget().value = ""
+        # 确保输入框状态重置
+        self._input_widget().placeholder = "Type a message. Use /help."
         self._submit_text(text)
 
     def action_copy_input(self) -> None:
@@ -590,28 +755,24 @@ class GGbotTui(App[None]):
         self.query_one(RichLog).action_scroll_down()
     @work(thread=True, exclusive=True)
     def _run_query_in_worker(self, user_text: str, *, turn_no: int, title_seed: str | None) -> None:
+        # 使用基础事件处理器发布助手增量输出
         def printer(delta: str) -> None:
-            self.call_from_thread(self._stream_delta, delta)
+            BaseEventHandler.publish_assistant_delta(delta)
 
+        # 使用基础事件处理器发布工具输出
         def tool_printer(name: str, output: str) -> None:
-            def write() -> None:
-                out = (output or "").strip()
-                if name == "status_update":
+            if name == "status_update":
+                BaseEventHandler.publish_status({"message": output})
+            else:
+                # 对于其他工具，暂时保持向后兼容
+                def write() -> None:
+                    out = (output or "").strip()
+                    self.query_one(RichLog).write(Text(f"[tool:{name}]", style="bold magenta"))
                     if out:
-                        self._push_status_update(out)
-                        self._render_status()
-                        self._render_top_right()
-                        line = Text("[status] ", style="bold cyan")
-                        line.append(out)
-                        self.query_one(RichLog).write(line)
-                    return
+                        self.query_one(RichLog).write(out)
+                    self.query_one(RichLog).write(Text(f"[/tool:{name}]", style="dim"))
 
-                self.query_one(RichLog).write(Text(f"[tool:{name}]", style="bold magenta"))
-                if out:
-                    self.query_one(RichLog).write(out)
-                self.query_one(RichLog).write(Text(f"[/tool:{name}]", style="dim"))
-
-            self.call_from_thread(write)
+                self.call_from_thread(write)
 
         if title_seed is not None:
             try:
@@ -622,10 +783,16 @@ class GGbotTui(App[None]):
             if title:
                 self._session_store.set_title(self.runtime.session_id, title=title, title_gen_turn=turn_no)
 
-                def update_title() -> None:
-                    self._render_status()
-
-                self.call_from_thread(update_title)
+                # 发布会话更新事件
+                session_state = SessionState(
+                    session_id=self.runtime.session_id,
+                    title=title,
+                    user_turns=turn_no,
+                    current_turn=self._current_conversation_turn,
+                    max_turns=self.runtime.settings.max_turns,
+                    thinking_enabled=self._thinking_enabled
+                )
+                BaseEventHandler.publish_session_update(session_state)
 
         try:
             # 直接创建ToolContext，因为参数很简单
@@ -651,32 +818,48 @@ class GGbotTui(App[None]):
                 ),
                 thinking_enabled=self._thinking_enabled,
             )
+
+            # 使用增强的事件消费函数
             consume_runtime_events(
                 result.events,
-                on_turn_update=lambda data: setattr(self, "_current_conversation_turn", int(data.get("current_turn") or 0)),
-                on_turn_complete=lambda data: setattr(self, "_current_conversation_turn", int(data.get("turns_used") or result.turns_used)),
-                on_provider_error=lambda data: self.call_from_thread(
-                    lambda: self._append_system(f"Provider error: {data.get('error', 'unknown')}")
+                on_turn_update=lambda data: BaseEventHandler.publish_turn_update(
+                    int(data.get("current_turn") or 0),
+                    self.runtime.settings.max_turns
+                ),
+                on_turn_complete=lambda data: BaseEventHandler.publish_turn_complete(
+                    int(data.get("turns_used") or result.turns_used)
+                ),
+                on_provider_error=lambda data: BaseEventHandler.publish_error(
+                    {"error": data.get("error", "unknown")}
+                ),
+                on_thinking=lambda data: BaseEventHandler.publish_thinking(
+                    data.get("thinking", "")
+                ),
+                on_assistant_delta=lambda data: BaseEventHandler.publish_assistant_delta(
+                    data.get("delta", "")
+                ),
+                on_assistant_final=lambda data: BaseEventHandler.publish_assistant_final(
+                    data.get("content", "")
                 ),
             )
-            self._current_conversation_turn = result.turns_used
-        except Exception as e:
-            def write_error() -> None:
-                self.query_one(RichLog).write(f"[error] {type(e).__name__}: {e}")
-                self.query_one("#stream", Static).update("")
-                self._busy = False
 
-            self.call_from_thread(write_error)
+            # 发布最终结果
+            for msg in reversed(self.runtime.messages):
+                if msg.role == "assistant" and msg.content:
+                    BaseEventHandler.publish_assistant_final(msg.content)
+                    break
+
+            BaseEventHandler.publish_turn_complete(result.turns_used)
+
+        except Exception as e:
+            # 发布错误事件
+            BaseEventHandler.publish_error({"error": f"{type(e).__name__}: {e}"})
             return
 
         def finalize() -> None:
             self.query_one("#stream", Static).update("")
-            for msg in reversed(self.runtime.messages):
-                if msg.role == "assistant":
-                    self._append_assistant_final(msg.content or "")
-                    break
             self._busy = False
-            # Update status with final turn count
+            # 更新状态
             self._render_status()
 
         self.call_from_thread(finalize)
