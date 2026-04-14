@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import json
+import time
+import tracemalloc
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
 from collections.abc import Callable
+from typing import cast
 
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
-from textual.widgets import Footer, Header, Input, RichLog, Static
+from textual.events import Key
+from textual.widgets import Footer, Header, RichLog, Static, TextArea
 
 from ..core.config import Settings
 from ..prompts import PromptManager
@@ -84,6 +88,35 @@ class _Runtime:
     client: ChatCompletionClient
 
 
+class CommandInput(TextArea):
+    async def handle_key(self, event: Key) -> bool:
+        if event.key == "enter":
+            event.stop()
+            event.prevent_default()
+            cast(GGbotTui, self.app).action_submit_input()
+            return True
+        if event.key == "shift+enter":
+            event.stop()
+            event.prevent_default()
+            self.insert("\n")
+            return True
+        if event.key == "ctrl+enter":
+            event.stop()
+            event.prevent_default()
+            cast(GGbotTui, self.app).action_submit_keep_input()
+            return True
+        return await super().handle_key(event)
+
+    def action_submit_input(self) -> None:
+        cast(GGbotTui, self.app).action_submit_input()
+
+    def action_submit_keep_input(self) -> None:
+        cast(GGbotTui, self.app).action_submit_keep_input()
+
+    def action_insert_newline(self) -> None:
+        self.insert("\n")
+
+
 _GYQ666_LOGO_LINES = [
     " █████  █     █   █████     █████   █████   █████ ",
     "█        █   █   █     █   █       █       █      ",
@@ -151,13 +184,18 @@ class GGbotTui(App[None]):
     }
 
     #input {
-        height: 3;
+        height: 7;
         padding: 0 1;
     }
     """
 
     BINDINGS = [
-        ("ctrl+c", "quit", "Quit"),
+        ("ctrl+q", "quit", "Quit"),
+        ("ctrl+c", "copy_input", "Copy"),
+        ("ctrl+v", "paste_input", "Paste"),
+        ("ctrl+l", "clear_screen", "Clear Screen"),
+        ("ctrl+up", "scroll_log_up", "Scroll Up"),
+        ("ctrl+down", "scroll_log_down", "Scroll Down"),
     ]
 
     def __init__(self, runtime: _Runtime) -> None:
@@ -178,6 +216,10 @@ class GGbotTui(App[None]):
         self._thinking_enabled: bool = self.runtime.settings.thinking_enabled
         # Current conversation turn tracking
         self._current_conversation_turn: int = 0
+        self._resource_status: str = "CPU:0.0s MEM:0.0MB"
+
+    def _input_widget(self) -> TextArea:
+        return self.query_one("#input", TextArea)
 
     def _push_status_update(self, text: str) -> None:
         text = (text or "").strip()
@@ -201,16 +243,35 @@ class GGbotTui(App[None]):
 
         yield RichLog(id="log", wrap=True, highlight=False, markup=False)
         yield Static("", id="stream", markup=False)
-        yield Input(placeholder="Type a message. Use /help.", id="input")
+        yield CommandInput(
+            "",
+            id="input",
+            language="markdown",
+            show_line_numbers=False,
+            tab_behavior="indent",
+        )
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one(Input).focus()
+        if not tracemalloc.is_tracing():
+            tracemalloc.start()
+        self.set_interval(1.5, self._update_resource_status)
+        self._input_widget().focus()
+        self._input_widget().placeholder = "Enter: send | Shift+Enter: newline | Ctrl+Enter: run & keep"
         self._heal_pending_tool_calls()
         self._render_history_bootstrap()
         self._render_loaded_history()
         self._render_top_left()
         self._render_top_right()
+        self._render_status()
+
+    def _update_resource_status(self) -> None:
+        cpu_s = time.process_time()
+        mem_mb = 0.0
+        if tracemalloc.is_tracing():
+            current_bytes, _peak_bytes = tracemalloc.get_traced_memory()
+            mem_mb = current_bytes / (1024 * 1024)
+        self._resource_status = f"CPU:{cpu_s:.1f}s MEM:{mem_mb:.1f}MB"
         self._render_status()
 
     def _render_top_right(self) -> None:
@@ -282,7 +343,11 @@ class GGbotTui(App[None]):
         if current_turn > 0:
             turn_info = f"T:{turn_count}/{max_turns} C:{current_turn}/{max_turns}"
 
-        header = f"{self.runtime.settings.openai_model} · {self.runtime.settings.workspace_root} · {title} {thinking_status} · {turn_info}"
+        mode = "RUN" if self._busy else "IDLE"
+        header = (
+            f"{self.runtime.settings.openai_model} · {self.runtime.settings.workspace_root} · "
+            f"{title} {thinking_status} · {turn_info} · {mode} · {self._resource_status}"
+        )
         self.query_one("#status_line", Static).update(header)
 
     def _render_permission_prompt(self, command: str) -> None:
@@ -306,8 +371,8 @@ class GGbotTui(App[None]):
         def prompt() -> None:
             self._pending_shell_confirm = (command, ev, result)
             self._render_permission_prompt(command)
-            self.query_one(Input).placeholder = "Allow shell_run? Type y or n"
-            self.query_one(Input).focus()
+            self._input_widget().placeholder = "Allow shell_run? Type y or n"
+            self._input_widget().focus()
 
         self.call_from_thread(prompt)
         ev.wait()
@@ -401,8 +466,8 @@ class GGbotTui(App[None]):
         if cmd == "/clear":
             self._pending_clear_confirm = True
             self._append_system("Confirm clear current session history? Type y or n.")
-            self.query_one(Input).placeholder = "Confirm /clear? Type y or n"
-            self.query_one(Input).focus()
+            self._input_widget().placeholder = "Confirm /clear? Type y or n"
+            self._input_widget().focus()
             self._render_status()
             return True
 
@@ -609,9 +674,7 @@ class GGbotTui(App[None]):
         self._render_status()
         self._append_system(f"Cleared current session history: {self.runtime.session_id}")
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        text = event.value.rstrip("\n")
-        self.query_one(Input).value = ""
+    def _submit_text(self, text: str) -> None:
         if not text.strip():
             return
 
@@ -632,7 +695,7 @@ class GGbotTui(App[None]):
                 self.query_one(RichLog).write(line)
 
             self._pending_shell_confirm = None
-            self.query_one(Input).placeholder = "Type a message. Use /help."
+            self._input_widget().placeholder = "Enter: send | Shift+Enter: newline | Ctrl+Enter: run & keep"
             self._render_status()
             ev.set()
             return
@@ -641,18 +704,18 @@ class GGbotTui(App[None]):
             answer = text.strip().lower()
             if answer in {"y", "yes"}:
                 self._pending_clear_confirm = False
-                self.query_one(Input).placeholder = "Type a message. Use /help."
+                self._input_widget().placeholder = "Enter: send | Shift+Enter: newline | Ctrl+Enter: run & keep"
                 self._clear_current_session_history()
                 return
             if answer in {"n", "no"}:
                 self._pending_clear_confirm = False
-                self.query_one(Input).placeholder = "Type a message. Use /help."
+                self._input_widget().placeholder = "Enter: send | Shift+Enter: newline | Ctrl+Enter: run & keep"
                 self._append_system("Cancelled /clear.")
                 self._render_status()
                 return
 
             self._append_system("Please answer y or n.")
-            self.query_one(Input).placeholder = "Confirm /clear? Type y or n"
+            self._input_widget().placeholder = "Confirm /clear? Type y or n"
             return
 
         if text.startswith("/"):
@@ -671,6 +734,35 @@ class GGbotTui(App[None]):
         self._render_status()
         self._run_query_in_worker(text, turn_no=turn_no, title_seed=text if should_title else None)
 
+    def action_submit_input(self) -> None:
+        text = self._input_widget().text.rstrip("\n")
+        self._input_widget().text = ""
+        self._submit_text(text)
+
+    def action_submit_keep_input(self) -> None:
+        text = self._input_widget().text.rstrip("\n")
+        self._submit_text(text)
+
+    def action_insert_newline(self) -> None:
+        self._input_widget().insert("\n")
+
+    def action_copy_input(self) -> None:
+        self._input_widget().action_copy()
+
+    def action_paste_input(self) -> None:
+        self._input_widget().action_paste()
+
+    def action_clear_screen(self) -> None:
+        self.query_one(RichLog).clear()
+        self.query_one("#stream", Static).update("")
+        self._assistant_stream_buffer = None
+        self._render_history_bootstrap()
+
+    def action_scroll_log_up(self) -> None:
+        self.query_one(RichLog).action_scroll_up()
+
+    def action_scroll_log_down(self) -> None:
+        self.query_one(RichLog).action_scroll_down()
     @work(thread=True, exclusive=True)
     def _run_query_in_worker(self, user_text: str, *, turn_no: int, title_seed: str | None) -> None:
         def printer(delta: str) -> None:
