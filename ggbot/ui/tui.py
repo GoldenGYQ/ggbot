@@ -33,7 +33,7 @@ from ..core.domain import SessionState, PermissionDecision
 from ..core.event_handlers.base_handler import BaseEventHandler, create_base_event_handler
 from ..tools.context import ToolContext
 from .pets import PetBones, Species, list_species, render_sprite
-from .renderers.tui_renderer import create_tui_renderer
+from .renderers.tui_renderer import TuiEventHandler, create_tui_renderer
 
 
 def _new_session_id() -> str:
@@ -209,6 +209,13 @@ class GGbotTui(App[None]):
             _, ev, result = self._pending_shell_confirm
             result["cancel"] = "Cancelled: TUI closing."
             ev.set()
+
+    def on_unmount(self) -> None:
+        """文本 UI 生命周期结束时显式清理订阅。"""
+        if hasattr(self, '_event_handler'):
+            self._event_handler.unsubscribe_all()
+        if hasattr(self, '_tui_renderer'):
+            self._tui_renderer.unsubscribe_all()
 
     def _input_widget(self) -> Input:
         return self.query_one("#input", Input)
@@ -753,26 +760,17 @@ class GGbotTui(App[None]):
 
     def action_scroll_log_down(self) -> None:
         self.query_one(RichLog).action_scroll_down()
+
     @work(thread=True, exclusive=True)
     def _run_query_in_worker(self, user_text: str, *, turn_no: int, title_seed: str | None) -> None:
         # 使用基础事件处理器发布助手增量输出
         def printer(delta: str) -> None:
-            BaseEventHandler.publish_assistant_delta(delta)
+            TuiEventHandler.publish_assistant_delta(delta)
 
         # 使用基础事件处理器发布工具输出
         def tool_printer(name: str, output: str) -> None:
             if name == "status_update":
-                BaseEventHandler.publish_status({"message": output})
-            else:
-                # 对于其他工具，暂时保持向后兼容
-                def write() -> None:
-                    out = (output or "").strip()
-                    self.query_one(RichLog).write(Text(f"[tool:{name}]", style="bold magenta"))
-                    if out:
-                        self.query_one(RichLog).write(out)
-                    self.query_one(RichLog).write(Text(f"[/tool:{name}]", style="dim"))
-
-                self.call_from_thread(write)
+                TuiEventHandler.publish_status({"message": output})
 
         if title_seed is not None:
             try:
@@ -792,7 +790,7 @@ class GGbotTui(App[None]):
                     max_turns=self.runtime.settings.max_turns,
                     thinking_enabled=self._thinking_enabled
                 )
-                BaseEventHandler.publish_session_update(session_state)
+                TuiEventHandler.publish_session_update(session_state)
 
         try:
             # 直接创建ToolContext，因为参数很简单
@@ -822,38 +820,42 @@ class GGbotTui(App[None]):
             # 使用增强的事件消费函数
             consume_runtime_events(
                 result.events,
-                on_turn_update=lambda data: BaseEventHandler.publish_turn_update(
+                on_turn_update=lambda data: TuiEventHandler.publish_turn_update(
                     int(data.get("current_turn") or 0),
                     self.runtime.settings.max_turns
                 ),
-                on_turn_complete=lambda data: BaseEventHandler.publish_turn_complete(
+                on_turn_complete=lambda data: TuiEventHandler.publish_turn_complete(
                     int(data.get("turns_used") or result.turns_used)
                 ),
-                on_provider_error=lambda data: BaseEventHandler.publish_error(
+                on_provider_error=lambda data: TuiEventHandler.publish_error(
                     {"error": data.get("error", "unknown")}
                 ),
-                on_thinking=lambda data: BaseEventHandler.publish_thinking(
+                on_thinking=lambda data: TuiEventHandler.publish_thinking(
                     data.get("thinking", "")
                 ),
-                on_assistant_delta=lambda data: BaseEventHandler.publish_assistant_delta(
-                    data.get("delta", "")
-                ),
-                on_assistant_final=lambda data: BaseEventHandler.publish_assistant_final(
-                    data.get("content", "")
+                on_tool_call=lambda data: TuiEventHandler.publish_tool_call(data),
+                on_tool_result=lambda data: TuiEventHandler.publish_tool_result(
+                    {
+                        "tool_call_id": str(data.get("id") or ""),
+                        "name": str(data.get("name") or "unknown"),
+                        "content": str(data.get("content") or ""),
+                        "error": bool(data.get("error", False)),
+                        "auto_healed": bool(data.get("auto_healed", False)),
+                    }
                 ),
             )
 
             # 发布最终结果
             for msg in reversed(self.runtime.messages):
                 if msg.role == "assistant" and msg.content:
-                    BaseEventHandler.publish_assistant_final(msg.content)
+                    TuiEventHandler.publish_assistant_final(msg.content)
                     break
 
-            BaseEventHandler.publish_turn_complete(result.turns_used)
+            TuiEventHandler.publish_turn_complete(result.turns_used)
 
         except Exception as e:
             # 发布错误事件
-            BaseEventHandler.publish_error({"error": f"{type(e).__name__}: {e}"})
+            TuiEventHandler.publish_error({"error": f"{type(e).__name__}: {e}"})
             return
 
         def finalize() -> None:
