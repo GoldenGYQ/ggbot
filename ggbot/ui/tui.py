@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import time
@@ -156,7 +156,7 @@ class GGbotTui(App[None]):
         if self._debug_events:
             def debug_listener(event: RuntimeEvent):
                 def log():
-                    self.query_one("RichLog").write(f"[debug:{event.type}]")
+                    self.query_one(RichLog).write(f"[debug:{event.type}]")
                 self.call_from_thread(log)
 
             sub = subscribe_to_events(debug_listener)
@@ -185,7 +185,7 @@ class GGbotTui(App[None]):
                 def show_error():
                     # 在日志中高亮显示错误
                     from rich.text import Text
-                    self.query_one("RichLog").write(Text(f"❌ 错误: {error_msg}", style="bold red"))
+                    self.query_one(RichLog).write(Text(f"❌ 错误: {error_msg}", style="bold red"))
                     # 更新状态
                     self._push_status_update(f"错误: {error_msg[:30]}...")
                     self._render_status()
