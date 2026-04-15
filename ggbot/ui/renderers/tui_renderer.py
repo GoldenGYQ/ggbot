@@ -5,6 +5,7 @@ from rich.text import Text
 
 from ...core.domain import RuntimeEvent
 from ...core.event_bus import EventHandler
+from ...core.event_handlers.base_handler import BaseEventHandler
 
 if TYPE_CHECKING:
     from ..tui import GGbotTui
@@ -144,3 +145,20 @@ class TuiRenderer(EventHandler):
 def create_tui_renderer(tui: GGbotTui) -> TuiRenderer:
     """创建TUI渲染器"""
     return TuiRenderer(tui)
+
+
+class TuiEventHandler(TuiRenderer):
+    """Backward-compatible alias with static event publish helpers."""
+
+    publish_assistant_delta = staticmethod(BaseEventHandler.publish_assistant_delta)
+    publish_assistant_final = staticmethod(BaseEventHandler.publish_assistant_final)
+    publish_tool_call = staticmethod(BaseEventHandler.publish_tool_call)
+    publish_tool_result = staticmethod(BaseEventHandler.publish_tool_result)
+    publish_thinking = staticmethod(BaseEventHandler.publish_thinking)
+    publish_turn_update = staticmethod(BaseEventHandler.publish_turn_update)
+    publish_turn_complete = staticmethod(BaseEventHandler.publish_turn_complete)
+    publish_session_update = staticmethod(BaseEventHandler.publish_session_update)
+    publish_permission_request = staticmethod(BaseEventHandler.publish_permission_request)
+    publish_permission_response = staticmethod(BaseEventHandler.publish_permission_response)
+    publish_status = staticmethod(BaseEventHandler.publish_status)
+    publish_error = staticmethod(BaseEventHandler.publish_error)

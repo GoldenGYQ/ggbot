@@ -14,11 +14,13 @@ from ggbot.tools.registry import ToolRegistry
 def test_tool_creation():
     """Test that web tools can be created."""
     web_search, web_fetch = make_web_tools()
-    http_get, = make_http_tools()
+    http_get, duckduckgo_search, news_search = make_http_tools()
 
     assert web_search is not None
     assert web_fetch is not None
     assert http_get is not None
+    assert duckduckgo_search is not None
+    assert news_search is not None
 
     print("Tool creation test passed")
 
@@ -26,7 +28,7 @@ def test_tool_creation():
 def test_tool_registration():
     """Test that tools can be registered in ToolRegistry."""
     web_search, web_fetch = make_web_tools()
-    http_get, = make_http_tools()
+    http_get, duckduckgo_search, news_search = make_http_tools()
 
     reg = ToolRegistry()
 
@@ -34,6 +36,8 @@ def test_tool_registration():
     reg.register_tool(web_search)
     reg.register_tool(web_fetch)
     reg.register_tool(http_get)
+    reg.register_tool(duckduckgo_search)
+    reg.register_tool(news_search)
 
     # Check specs
     specs = reg.specs()
@@ -42,6 +46,8 @@ def test_tool_registration():
     assert "web_search" in spec_names
     assert "web_fetch" in spec_names
     assert "http_get" in spec_names
+    assert "duckduckgo_search" in spec_names
+    assert "news_search" in spec_names
 
     print(" Tool registration test passed")
 
@@ -49,7 +55,7 @@ def test_tool_registration():
 def test_tool_specs():
     """Test tool specifications."""
     web_search, web_fetch = make_web_tools()
-    http_get, = make_http_tools()
+    http_get, duckduckgo_search, news_search = make_http_tools()
 
     # Check web_search spec
     web_search_spec = web_search.__ggbot_tool__.spec
@@ -72,6 +78,14 @@ def test_tool_specs():
     assert http_get_spec.name == "http_get"
     assert "Fetch a URL" in http_get_spec.description
     assert "url" in http_get_spec.parameters["properties"]
+
+    # Check duckduckgo_search spec
+    duckduckgo_search_spec = duckduckgo_search.__ggbot_tool__.spec
+    assert duckduckgo_search_spec.name == "duckduckgo_search"
+
+    # Check news_search spec
+    news_search_spec = news_search.__ggbot_tool__.spec
+    assert news_search_spec.name == "news_search"
 
     print(" Tool specs test passed")
 
@@ -119,8 +133,10 @@ def test_make_web_tools_function():
 def test_make_http_tools_function():
     """Test make_http_tools function returns correct number of tools."""
     tools = make_http_tools()
-    assert len(tools) == 1
+    assert len(tools) == 3
     assert callable(tools[0])
+    assert callable(tools[1])
+    assert callable(tools[2])
 
     print(" make_http_tools function test passed")
 

@@ -737,3 +737,52 @@ def event_monitor(
             print("\n已停止监听")
         except Exception as e:
             print(f"错误：{e}")
+
+
+@app.command()
+def api(
+    host: str = typer.Option("127.0.0.1", "--host", "-h", help="服务器主机地址"),
+    port: int = typer.Option(8000, "--port", "-p", help="服务器端口"),
+    workspace_root: Optional[Path] = typer.Option(None, "--workspace-root", help="工作空间根目录"),
+    resume: Optional[str] = typer.Option(None, "--resume", help="恢复指定会话"),
+):
+    """启动GGbot API服务器"""
+    try:
+        from .api.server import run_api_server
+    except ImportError:
+        print("错误：API服务器模块不可用")
+        print("请确保已安装FastAPI和uvicorn：pip install fastapi uvicorn")
+        return
+
+    from .core.runtime import create_agent_bootstrap, create_app_session
+
+    print(f"启动GGbot API服务器...")
+    print(f"地址: http://{host}:{port}")
+    print(f"WebSocket: ws://{host}:{port}/ws")
+    print("按 Ctrl+C 停止服务器\n")
+
+    # 创建应用会话
+    app_session = create_app_session(
+        workspace_root=workspace_root,
+        resume=resume,
+        default_session_name="chat",
+        prefer_recent=True,
+    )
+
+    bootstrap = create_agent_bootstrap(
+        settings=app_session.settings,
+        session_id=app_session.session_id,
+        transcript=app_session.transcript,
+        mode="chat",
+        thinking_enabled=app_session.settings.thinking_enabled,
+    )
+
+    # 运行API服务器
+    try:
+        run_api_server(bootstrap.runtime, host, port)
+    except KeyboardInterrupt:
+        print("\nAPI服务器已停止")
+    except Exception as e:
+        print(f"启动API服务器失败: {e}")
+    finally:
+        bootstrap.client.close()

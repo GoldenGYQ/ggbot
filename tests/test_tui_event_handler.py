@@ -20,7 +20,7 @@ from ggbot.core.domain import (
     SessionState,
 )
 from ggbot.core.event_handlers.base_handler import BaseEventHandler
-from ggbot.ui.renderers.tui_renderer import TuiRenderer
+from ggbot.ui.renderers.tui_renderer import TuiEventHandler, TuiRenderer
 
 
 class MockTui:

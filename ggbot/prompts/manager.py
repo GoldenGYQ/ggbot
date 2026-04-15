@@ -36,4 +36,5 @@ class PromptManager:
 
     def build_system_message(self, *, mode: PromptMode, tool_specs: list[ToolSpec], thinking_enabled: bool = False) -> ChatMessage:
         rendered = self.build_rendered_prompt(mode=mode, tool_specs=tool_specs, thinking_enabled=thinking_enabled)
-        return ChatMessage(role="system", content=rendered.content)
+        compat_header = f"**Mode**: {mode}\n\n"
+        return ChatMessage(role="system", content=compat_header + rendered.content)

@@ -41,6 +41,10 @@ def _extract_paths_from_command(command: str, workspace_root: Path) -> list[Path
             if part.startswith('-'):
                 continue
 
+            # 第一个 token 通常是可执行程序路径，允许在工作区外。
+            if i == 0:
+                continue
+
             # 处理cd命令的目标目录
             if part == 'cd' and i + 1 < len(parts):
                 next_part = parts[i + 1]
@@ -77,10 +81,26 @@ def _extract_paths_from_command(command: str, workspace_root: Path) -> list[Path
 
 def _validate_command_paths(command: str, workspace_root: Path) -> None:
     """验证命令中的路径是否在允许的工作区内"""
-    workspace_manager = get_workspace_manager()
+    try:
+        workspace_manager = get_workspace_manager()
+    except RuntimeError:
+        workspace_manager = None
+
+    workspace_root = workspace_root.resolve()
     paths = _extract_paths_from_command(command, workspace_root)
 
     for path in paths:
+        if workspace_manager is None:
+            try:
+                path.resolve().relative_to(workspace_root)
+            except ValueError:
+                raise PermissionError(
+                    f"命令中的路径不在允许的工作区内: {path}\n"
+                    f"命令: {command}\n"
+                    f"允许的工作区: ."
+                )
+            continue
+
         if not workspace_manager.is_allowed_workspace(path):
             # 检查路径是否在允许的工作区的子目录中
             path_in_allowed = False

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import inspect
 import json
 import os
 import re
@@ -70,6 +71,46 @@ def _format_results(query: str, items: list[dict[str, Any]], n: int) -> str:
     return "\n".join(lines)
 
 
+async def _maybe_await(value: Any) -> Any:
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+async def _close_client(client: Any) -> None:
+    close = getattr(client, "aclose", None)
+    if close is not None:
+        await _maybe_await(close())
+
+
+async def _call_provider(fn: Any, *args: Any) -> Any:
+    result = fn(*args)
+    return await _maybe_await(result)
+
+
+def _normalize_search_items(raw_items: list[dict[str, Any]], n: int) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    for item in raw_items[:n]:
+        normalized.append(
+            {
+                "title": str(item.get("title", "")),
+                "url": str(item.get("url") or item.get("href") or ""),
+                "content": str(item.get("content") or item.get("body") or item.get("description") or ""),
+            }
+        )
+    return normalized
+
+
+def _web_search_internal(query: str, count: int, provider: str) -> list[dict[str, Any]]:
+    # Legacy helper used by tests; returns DDGS raw records for duckduckgo.
+    if provider != "duckduckgo":
+        return []
+    from ddgs import DDGS
+
+    ddgs = DDGS(timeout=10)
+    return list(ddgs.text(query, max_results=count) or [])
+
+
 class WebSearchArgs(BaseModel):
     """Web search arguments"""
     query: str = Field(description="Search query")
@@ -93,17 +134,21 @@ async def _search_brave(query: str, n: int, ctx: ToolContext | None = None) -> s
         return await _search_duckduckgo(query, n, ctx)
 
     try:
-        async with httpx.AsyncClient() as client:
+        client = httpx.AsyncClient()
+        try:
             r = await client.get(
                 "https://api.search.brave.com/res/v1/web/search",
                 params={"q": query, "count": n},
                 headers={"Accept": "application/json", "X-Subscription-Token": api_key},
                 timeout=10.0,
             )
-            r.raise_for_status()
+            await _maybe_await(r.raise_for_status())
+        finally:
+            await _close_client(client)
+        payload = await _maybe_await(r.json())
         items = [
             {"title": x.get("title", ""), "url": x.get("url", ""), "content": x.get("description", "")}
-            for x in r.json().get("web", {}).get("results", [])
+            for x in payload.get("web", {}).get("results", [])
         ]
         return _format_results(query, items, n)
     except Exception as e:
@@ -119,15 +164,19 @@ async def _search_tavily(query: str, n: int, ctx: ToolContext | None = None) -> 
         return await _search_duckduckgo(query, n, ctx)
 
     try:
-        async with httpx.AsyncClient() as client:
+        client = httpx.AsyncClient()
+        try:
             r = await client.post(
                 "https://api.tavily.com/search",
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={"query": query, "max_results": n},
                 timeout=15.0,
             )
-            r.raise_for_status()
-        return _format_results(query, r.json().get("results", []), n)
+            await _maybe_await(r.raise_for_status())
+        finally:
+            await _close_client(client)
+        payload = await _maybe_await(r.json())
+        return _format_results(query, payload.get("results", []), n)
     except Exception as e:
         return f"Error: {e}"
 
@@ -146,15 +195,19 @@ async def _search_searxng(query: str, n: int, ctx: ToolContext | None = None) ->
         return f"Error: invalid SearXNG URL: {error_msg}"
 
     try:
-        async with httpx.AsyncClient() as client:
+        client = httpx.AsyncClient()
+        try:
             r = await client.get(
                 endpoint,
                 params={"q": query, "format": "json"},
                 headers={"User-Agent": USER_AGENT},
                 timeout=10.0,
             )
-            r.raise_for_status()
-        return _format_results(query, r.json().get("results", []), n)
+            await _maybe_await(r.raise_for_status())
+        finally:
+            await _close_client(client)
+        payload = await _maybe_await(r.json())
+        return _format_results(query, payload.get("results", []), n)
     except Exception as e:
         return f"Error: {e}"
 
@@ -169,15 +222,19 @@ async def _search_jina(query: str, n: int, ctx: ToolContext | None = None) -> st
 
     try:
         headers = {"Accept": "application/json", "Authorization": f"Bearer {api_key}"}
-        async with httpx.AsyncClient() as client:
+        client = httpx.AsyncClient()
+        try:
             r = await client.get(
                 f"https://s.jina.ai/",
                 params={"q": query},
                 headers=headers,
                 timeout=15.0,
             )
-            r.raise_for_status()
-        data = r.json().get("data", [])[:n]
+            await _maybe_await(r.raise_for_status())
+        finally:
+            await _close_client(client)
+        payload = await _maybe_await(r.json())
+        data = payload.get("data", [])[:n]
         items = [
             {"title": d.get("title", ""), "url": d.get("url", ""), "content": d.get("content", "")[:500]}
             for d in data
@@ -190,16 +247,10 @@ async def _search_jina(query: str, n: int, ctx: ToolContext | None = None) -> st
 async def _search_duckduckgo(query: str, n: int, ctx: ToolContext | None = None) -> str:
     """Search using DuckDuckGo"""
     try:
-        from ddgs import DDGS
-
-        ddgs = DDGS(timeout=10)
-        raw = await asyncio.to_thread(ddgs.text, query, max_results=n)
+        raw = await asyncio.to_thread(_web_search_internal, query, n, "duckduckgo")
         if not raw:
             return f"No results for: {query}"
-        items = [
-            {"title": r.get("title", ""), "url": r.get("href", ""), "content": r.get("body", "")}
-            for r in raw
-        ]
+        items = _normalize_search_items(raw, n)
         return _format_results(query, items, n)
     except Exception as e:
         if ctx:
@@ -217,15 +268,15 @@ async def web_search(ctx: ToolContext, args: WebSearchArgs) -> str:
     n = min(max(args.count, 1), 10)
 
     if provider == "duckduckgo":
-        return await _search_duckduckgo(args.query, n, ctx)
+        return await _call_provider(_search_duckduckgo, args.query, n, ctx)
     elif provider == "tavily":
-        return await _search_tavily(args.query, n, ctx)
+        return await _call_provider(_search_tavily, args.query, n, ctx)
     elif provider == "searxng":
-        return await _search_searxng(args.query, n, ctx)
+        return await _call_provider(_search_searxng, args.query, n, ctx)
     elif provider == "jina":
-        return await _search_jina(args.query, n, ctx)
+        return await _call_provider(_search_jina, args.query, n, ctx)
     elif provider == "brave":
-        return await _search_brave(args.query, n, ctx)
+        return await _call_provider(_search_brave, args.query, n, ctx)
     else:
         return f"Error: unknown search provider '{provider}'"
 
@@ -237,15 +288,19 @@ async def _fetch_jina(url: str, max_chars: int, ctx: ToolContext | None = None) 
         jina_key = os.environ.get("JINA_API_KEY", "")
         if jina_key:
             headers["Authorization"] = f"Bearer {jina_key}"
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        client = httpx.AsyncClient(timeout=20.0)
+        try:
             r = await client.get(f"https://r.jina.ai/{url}", headers=headers)
             if r.status_code == 429:
                 if ctx:
                     ctx.emit("status", {"message": "Jina Reader rate limited, falling back to readability", "stage": "fetch_fallback"})
                 return None
-            r.raise_for_status()
+            await _maybe_await(r.raise_for_status())
+        finally:
+            await _close_client(client)
 
-        data = r.json().get("data", {})
+        payload = await _maybe_await(r.json())
+        data = payload.get("data", {})
         title = data.get("title", "")
         text = data.get("content", "")
         if not text:
@@ -286,13 +341,16 @@ async def _fetch_readability(url: str, extract_mode: str, max_chars: int, ctx: T
     try:
         from readability import Document
 
-        async with httpx.AsyncClient(
+        client = httpx.AsyncClient(
             follow_redirects=True,
             max_redirects=MAX_REDIRECTS,
             timeout=30.0,
-        ) as client:
+        )
+        try:
             r = await client.get(url, headers={"User-Agent": USER_AGENT})
-            r.raise_for_status()
+            await _maybe_await(r.raise_for_status())
+        finally:
+            await _close_client(client)
 
         # TODO: Implement proper SSRF protection
         # For now, just validate the URL
@@ -303,7 +361,8 @@ async def _fetch_readability(url: str, extract_mode: str, max_chars: int, ctx: T
         ctype = r.headers.get("content-type", "")
 
         if "application/json" in ctype:
-            text, extractor = json.dumps(r.json(), indent=2, ensure_ascii=False), "json"
+            payload = await _maybe_await(r.json())
+            text, extractor = json.dumps(payload, ensure_ascii=False), "json"
         elif "text/html" in ctype or r.text[:256].lower().startswith(("<!doctype", "<html")):
             doc = Document(r.text)
             content = _to_markdown(doc.summary()) if extract_mode == "markdown" else _strip_tags(doc.summary())

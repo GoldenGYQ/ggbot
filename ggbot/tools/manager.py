@@ -97,7 +97,7 @@ class ToolManager:
         )
 
         # HTTP工具
-        http_get, = make_http_tools()
+        http_get, duckduckgo_search, news_search = make_http_tools()
 
         # 时间工具
         get_current_time, get_date_info, get_timezone_list = make_time_tools()
@@ -119,6 +119,8 @@ class ToolManager:
                 shell_kill,
                 status_update,
                 http_get,
+                duckduckgo_search,
+                news_search,
                 get_current_time,
                 get_date_info,
                 get_timezone_list,
