@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 from rich.text import Text
 
 from ...core.domain import RuntimeEvent
-from ...core.event_bus import EventHandler
+from ...core.event_bus import EventBus, EventHandler
 from ...core.event_handlers.base_handler import BaseEventHandler
 
 if TYPE_CHECKING:
@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 class TuiRenderer(EventHandler):
     """TUI渲染器（只做UI渲染，不处理业务逻辑）"""
 
-    def __init__(self, tui: GGbotTui):
-        super().__init__()
+    def __init__(self, tui: GGbotTui, event_bus: EventBus | None = None):
+        super().__init__(event_bus=event_bus)
         self.tui = tui
         self._setup_subscriptions()
 
@@ -40,7 +40,7 @@ class TuiRenderer(EventHandler):
         @self.subscribe(["tool_call"])
         def on_tool_call(event: RuntimeEvent) -> None:
             tool_call_data = event.data
-            name = tool_call_data.get("function", {}).get("name", "unknown")
+            name = tool_call_data.get("function", {}).get("name") or tool_call_data.get("name", "unknown")
 
             def write_tool_call():
                 self.tui.query_one("RichLog").write(Text(f"[tool:{name}]", style="bold magenta"))
@@ -142,9 +142,9 @@ class TuiRenderer(EventHandler):
                 self.tui.call_from_thread(log_event)
 
 
-def create_tui_renderer(tui: GGbotTui) -> TuiRenderer:
+def create_tui_renderer(tui: GGbotTui, event_bus: EventBus | None = None) -> TuiRenderer:
     """创建TUI渲染器"""
-    return TuiRenderer(tui)
+    return TuiRenderer(tui, event_bus=event_bus)
 
 
 class TuiEventHandler(TuiRenderer):

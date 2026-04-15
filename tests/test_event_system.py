@@ -284,6 +284,36 @@ def test_event_handler_class():
     handler.unsubscribe_all()
 
 
+def test_event_handler_custom_bus_isolation():
+    """测试 EventHandler 可绑定自定义总线并与全局总线隔离。"""
+    from ggbot.core.event_bus import EventHandler
+
+    local_bus = EventBus()
+    get_global_event_bus().clear()
+
+    class TestEventHandler(EventHandler):
+        def __init__(self):
+            super().__init__(event_bus=local_bus)
+            self.received_events = []
+
+            @self.subscribe(["test_event"])
+            def on_test_event(event: RuntimeEvent):
+                self.received_events.append(event)
+
+    handler = TestEventHandler()
+
+    # 发布到全局总线，不应被本地总线订阅处理器接收
+    publish_event(RuntimeEvent(type="test_event", data={"source": "global"}))
+    assert len(handler.received_events) == 0
+
+    # 发布到本地总线，应命中处理器
+    local_bus.publish(RuntimeEvent(type="test_event", data={"source": "local"}))
+    assert len(handler.received_events) == 1
+    assert handler.received_events[0].data["source"] == "local"
+
+    handler.unsubscribe_all()
+
+
 def test_message_conversion():
     """测试消息转换"""
     # 测试 Message 到字典的转换

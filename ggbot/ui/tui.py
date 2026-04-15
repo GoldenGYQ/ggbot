@@ -29,7 +29,8 @@ from ..core.runtime_events import consume_runtime_events
 from ..core.session_store import SessionStore
 from ..core.transcript import Transcript
 from ..core.types import ChatMessage
-from ..core.domain import SessionState, PermissionDecision
+from ..core.domain import RuntimeEvent, SessionState, PermissionDecision
+from ..core.event_bus import EventBus
 from ..core.event_handlers.base_handler import BaseEventHandler, create_base_event_handler
 from ..tools.context import ToolContext
 from .pets import PetBones, Species, list_species, render_sprite
@@ -136,9 +137,10 @@ class GGbotTui(App[None]):
         # Current conversation turn tracking
         self._current_conversation_turn: int = 0
         self._resource_status: str = "CPU:0.0s MEM:0.0MB"
+        self._event_bus = EventBus()
         # Event handling with new architecture
-        self._event_handler = create_base_event_handler()  # 业务逻辑处理器
-        self._tui_renderer = create_tui_renderer(self)     # UI渲染器
+        self._event_handler = create_base_event_handler(event_bus=self._event_bus)  # 业务逻辑处理器
+        self._tui_renderer = create_tui_renderer(self, event_bus=self._event_bus)     # UI渲染器
         self._debug_events: bool = False  # 设置为 True 可以调试事件流
         # Permission prompt tracking
         self._showing_permission_prompt: bool = False
@@ -149,9 +151,6 @@ class GGbotTui(App[None]):
 
     def _setup_custom_event_listeners(self):
         """设置自定义事件监听器（示例）"""
-        from ..core.event_bus import subscribe_to_events
-        from ..core.domain import RuntimeEvent
-
         # 示例1：监听所有事件并记录（调试用）
         if self._debug_events:
             def debug_listener(event: RuntimeEvent):
@@ -159,7 +158,7 @@ class GGbotTui(App[None]):
                     self.query_one(RichLog).write(f"[debug:{event.type}]")
                 self.call_from_thread(log)
 
-            sub = subscribe_to_events(debug_listener)
+            sub = self._event_bus.subscribe(debug_listener)
             self._custom_listeners.append(sub)
 
         # 示例2：监听工具调用并统计
@@ -175,7 +174,7 @@ class GGbotTui(App[None]):
                     self._render_top_right()
                 self.call_from_thread(update_status)
 
-        sub = subscribe_to_events(tool_call_listener, "tool_call")
+        sub = self._event_bus.subscribe(tool_call_listener, "tool_call")
         self._custom_listeners.append(sub)
 
         # 示例3：监听错误事件并特殊处理
@@ -191,7 +190,7 @@ class GGbotTui(App[None]):
                     self._render_status()
                 self.call_from_thread(show_error)
 
-        sub = subscribe_to_events(error_listener, "error")
+        sub = self._event_bus.subscribe(error_listener, "error")
         self._custom_listeners.append(sub)
 
     def __del__(self):
@@ -202,7 +201,8 @@ class GGbotTui(App[None]):
             self._tui_renderer.unsubscribe_all()
         # 清理自定义监听器
         for listener in getattr(self, '_custom_listeners', []):
-            listener.callback = None
+            self._event_bus.unsubscribe(listener)
+        self._custom_listeners = []
         # 清理权限提示状态
         self._showing_permission_prompt = False
         if self._pending_shell_confirm is not None:
@@ -216,6 +216,9 @@ class GGbotTui(App[None]):
             self._event_handler.unsubscribe_all()
         if hasattr(self, '_tui_renderer'):
             self._tui_renderer.unsubscribe_all()
+        for listener in getattr(self, '_custom_listeners', []):
+            self._event_bus.unsubscribe(listener)
+        self._custom_listeners = []
 
     def _input_widget(self) -> Input:
         return self.query_one("#input", Input)
@@ -763,14 +766,28 @@ class GGbotTui(App[None]):
 
     @work(thread=True, exclusive=True)
     def _run_query_in_worker(self, user_text: str, *, turn_no: int, title_seed: str | None) -> None:
+        def publish_local(event_type: str, data: dict) -> None:
+            self._event_bus.publish(RuntimeEvent(type=event_type, data=data))
+
         # 使用基础事件处理器发布助手增量输出
         def printer(delta: str) -> None:
-            TuiEventHandler.publish_assistant_delta(delta)
+            publish_local("assistant_delta", {"delta": delta})
 
         # 使用基础事件处理器发布工具输出
         def tool_printer(name: str, output: str) -> None:
             if name == "status_update":
-                TuiEventHandler.publish_status({"message": output})
+                publish_local("status", {"message": output})
+                return
+
+            publish_local("tool_call", {"name": name, "function": {"name": name}})
+            publish_local(
+                "tool_result",
+                {
+                    "name": name,
+                    "content": output,
+                    "error": output.startswith("Tool error:"),
+                },
+            )
 
         if title_seed is not None:
             try:
@@ -790,7 +807,7 @@ class GGbotTui(App[None]):
                     max_turns=self.runtime.settings.max_turns,
                     thinking_enabled=self._thinking_enabled
                 )
-                TuiEventHandler.publish_session_update(session_state)
+                publish_local("session_update", session_state.to_dict())
 
         try:
             # 直接创建ToolContext，因为参数很简单
@@ -820,42 +837,38 @@ class GGbotTui(App[None]):
             # 使用增强的事件消费函数
             consume_runtime_events(
                 result.events,
-                on_turn_update=lambda data: TuiEventHandler.publish_turn_update(
-                    int(data.get("current_turn") or 0),
-                    self.runtime.settings.max_turns
-                ),
-                on_turn_complete=lambda data: TuiEventHandler.publish_turn_complete(
-                    int(data.get("turns_used") or result.turns_used)
-                ),
-                on_provider_error=lambda data: TuiEventHandler.publish_error(
-                    {"error": data.get("error", "unknown")}
-                ),
-                on_thinking=lambda data: TuiEventHandler.publish_thinking(
-                    data.get("thinking", "")
-                ),
-                on_tool_call=lambda data: TuiEventHandler.publish_tool_call(data),
-                on_tool_result=lambda data: TuiEventHandler.publish_tool_result(
+                on_turn_update=lambda data: publish_local(
+                    "turn_update",
                     {
-                        "tool_call_id": str(data.get("id") or ""),
-                        "name": str(data.get("name") or "unknown"),
-                        "content": str(data.get("content") or ""),
-                        "error": bool(data.get("error", False)),
-                        "auto_healed": bool(data.get("auto_healed", False)),
-                    }
+                        "current_turn": int(data.get("current_turn") or 0),
+                        "max_turns": self.runtime.settings.max_turns,
+                    },
+                ),
+                on_turn_complete=lambda data: publish_local(
+                    "turn_complete",
+                    {"turns_used": int(data.get("turns_used") or result.turns_used)},
+                ),
+                on_provider_error=lambda data: publish_local(
+                    "error",
+                    {"error": data.get("error", "unknown")},
+                ),
+                on_thinking=lambda data: publish_local(
+                    "thinking",
+                    {"thinking": data.get("thinking", "")},
                 ),
             )
 
             # 发布最终结果
             for msg in reversed(self.runtime.messages):
                 if msg.role == "assistant" and msg.content:
-                    TuiEventHandler.publish_assistant_final(msg.content)
+                    publish_local("assistant_final", {"content": msg.content})
                     break
 
-            TuiEventHandler.publish_turn_complete(result.turns_used)
+            publish_local("turn_complete", {"turns_used": result.turns_used})
 
         except Exception as e:
             # 发布错误事件
-            TuiEventHandler.publish_error({"error": f"{type(e).__name__}: {e}"})
+            publish_local("error", {"error": f"{type(e).__name__}: {e}"})
             return
 
         def finalize() -> None:

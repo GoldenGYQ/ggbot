@@ -138,7 +138,8 @@ def subscribe_to_events(
 class EventHandler:
     """事件处理器基类，简化事件订阅"""
 
-    def __init__(self):
+    def __init__(self, event_bus: EventBus | None = None):
+        self._event_bus = event_bus or get_global_event_bus()
         self._subscriptions: list[EventSubscription] = []
 
     def subscribe(
@@ -147,7 +148,7 @@ class EventHandler:
     ) -> Callable:
         """装饰器：订阅事件"""
         def decorator(func: Callable[[RuntimeEvent], None]) -> Callable[[RuntimeEvent], None]:
-            subscription = subscribe_to_events(func, event_types)
+            subscription = self._event_bus.subscribe(func, event_types)
             self._subscriptions.append(subscription)
             return func
         return decorator
@@ -155,7 +156,7 @@ class EventHandler:
     def unsubscribe_all(self) -> None:
         """取消所有订阅"""
         for subscription in self._subscriptions:
-            get_global_event_bus().unsubscribe(subscription)
+            self._event_bus.unsubscribe(subscription)
         self._subscriptions.clear()
 
     def __del__(self):
