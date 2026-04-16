@@ -10,7 +10,8 @@ from ..tools.registry import ToolRegistry
 from .events import TranscriptEventType
 from .history_repair import auto_heal_missing_tool_messages, sanitize_orphan_tool_messages
 from .model_interaction import extract_thinking_content, perform_model_turn
-from .runtime_events import RuntimeEvent
+from .domain import RuntimeEvent
+from .runtime_events import runtime_event
 from .tool_execution import execute_tool_call
 from .transcript import Transcript
 from .types import ChatMessage
@@ -102,7 +103,6 @@ def run_query(
         "max_turns": max_turns,
         "start_turn": 0,
     })
-    runtime_events.append(RuntimeEvent(type="turn_info", data={"max_turns": max_turns, "start_turn": 0}))
 
     while turns < max_turns:
         turns += 1
@@ -112,7 +112,7 @@ def run_query(
             "current_turn": turns,
             "max_turns": max_turns,
         })
-        runtime_events.append(RuntimeEvent(type="turn_update", data={"current_turn": turns, "max_turns": max_turns}))
+        runtime_events.append(runtime_event("turn_update", {"current_turn": turns, "max_turns": max_turns}))
 
         # Heal any interrupted history before sending to the provider.
         sanitize_orphan_tool_messages(messages=messages)
@@ -156,7 +156,16 @@ def run_query(
         "max_turns": max_turns,
         "completed": turns < max_turns or not last_has_tool_calls,
     })
-    runtime_events.append(RuntimeEvent(type="turn_complete", data={"turns_used": turns, "max_turns": max_turns, "completed": turns < max_turns or not last_has_tool_calls}))
+    runtime_events.append(
+        runtime_event(
+            "turn_complete",
+            {
+                "turns_used": turns,
+                "max_turns": max_turns,
+                "completed": turns < max_turns or not last_has_tool_calls,
+            },
+        )
+    )
 
     return QueryResult(messages=messages, turns_used=turns, events=runtime_events)
 

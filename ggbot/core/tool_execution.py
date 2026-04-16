@@ -7,8 +7,8 @@ from typing import Protocol
 
 from ..tools.context import ToolContext
 from ..tools.registry import ToolRegistry, parse_tool_arguments
-from .events import TranscriptEventType
-from .runtime_events import RuntimeEvent, runtime_event
+from .domain import RuntimeEvent, RuntimeEventType
+from .runtime_events import runtime_event
 from .transcript import Transcript
 from .types import ChatMessage, ToolCall
 
@@ -23,7 +23,7 @@ class ToolExecutionOutcome:
     events: list[RuntimeEvent] = field(default_factory=list)
 
 
-def _emit_event(outcome: ToolExecutionOutcome, event_type: TranscriptEventType, data: dict) -> None:
+def _emit_event(outcome: ToolExecutionOutcome, event_type: RuntimeEventType, data: dict) -> None:
     outcome.events.append(runtime_event(event_type, data))
 
 
@@ -89,7 +89,7 @@ def execute_tool_call(
             "raw_arguments": raw_arguments,
             "parse_error": f"{type(e).__name__}: {e}",
         })
-        _emit_event(outcome, "model_message", tool_msg.model_dump(exclude_none=True))
+        _emit_event(outcome, "event", tool_msg.model_dump(exclude_none=True))
         _emit_event(outcome, "tool_result", {
             "id": tool_call.id,
             "name": name,
@@ -141,7 +141,7 @@ def execute_tool_call(
                     "budget_exceeded": True,
                 },
             )
-            _emit_event(outcome, "model_message", tool_msg.model_dump(exclude_none=True))
+            _emit_event(outcome, "event", tool_msg.model_dump(exclude_none=True))
             _emit_event(outcome, "tool_result", {
                 "id": tool_call.id,
                 "name": name,
@@ -179,7 +179,7 @@ def execute_tool_call(
             "content_len": len(tool_msg.content),
         },
     )
-    _emit_event(outcome, "model_message", tool_msg.model_dump(exclude_none=True))
+    _emit_event(outcome, "event", tool_msg.model_dump(exclude_none=True))
     _emit_event(outcome, "tool_result", {
         "id": tool_call.id,
         "name": name,

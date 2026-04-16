@@ -7,7 +7,8 @@ from collections.abc import Callable
 from typing import Any
 
 from .events import TranscriptEventType
-from .runtime_events import RuntimeEvent
+from .domain import RuntimeEvent
+from .runtime_events import runtime_event_to_transcript_type
 
 
 TRANSPORT_PROTOCOL_VERSION = 1
@@ -72,6 +73,7 @@ def encode_runtime_events(
     out: list[TransportEnvelope] = []
     seq = start_seq
     for event in events:
+        transcript_type = runtime_event_to_transcript_type(event)
         out.append(
             TransportEnvelope(
                 version=TRANSPORT_PROTOCOL_VERSION,
@@ -79,7 +81,7 @@ def encode_runtime_events(
                 seq=seq,
                 ts_ms=int(now()),
                 source=source,
-                event_type=event.type,
+                event_type=transcript_type,
                 data=dict(event.data),
             )
         )

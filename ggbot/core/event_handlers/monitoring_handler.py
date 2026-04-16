@@ -58,7 +58,7 @@ class MonitoringHandler(EventHandler):
     def __init__(self, enable_alerts: bool = True):
         super().__init__()
         self.stats = EventStats()
-        self.enable_alerts = enable_alerts
+        self._alerts_enabled = enable_alerts
         self._setup_subscriptions()
 
     def _setup_subscriptions(self):
@@ -70,9 +70,9 @@ class MonitoringHandler(EventHandler):
             self.stats.record_event(event.type)
 
             # 根据事件类型进行特殊处理
-            if event.type == "error" and self.enable_alerts:
+            if event.type == "error" and self._alerts_enabled:
                 self._alert_on_error(event)
-            elif event.type == "tool_call" and self.enable_alerts:
+            elif event.type == "tool_call" and self._alerts_enabled:
                 self._alert_on_tool_call(event)
             elif event.type in ["assistant_delta", "assistant_final"]:
                 self._track_assistant_message(event)
@@ -142,9 +142,9 @@ class MonitoringHandler(EventHandler):
         """重置统计信息"""
         self.stats = EventStats()
 
-    def enable_alerts(self, enabled: bool):
+    def set_alerts_enabled(self, enabled: bool):
         """启用/禁用警报"""
-        self.enable_alerts = enabled
+        self._alerts_enabled = enabled
 
     def get_event_rate(self, window_seconds: int = 60) -> float:
         """获取事件速率（事件/分钟）"""

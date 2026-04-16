@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 from threading import Event
 from collections.abc import Callable
+from typing import cast
 
 from rich.text import Text
 from textual import work
@@ -29,7 +30,7 @@ from ..core.runtime_events import consume_runtime_events
 from ..core.session_store import SessionStore
 from ..core.transcript import Transcript
 from ..core.types import ChatMessage
-from ..core.domain import RuntimeEvent, SessionState, PermissionDecision
+from ..core.domain import RuntimeEvent, RuntimeEventType, SessionState, PermissionDecision
 from ..core.event_bus import EventBus
 from ..core.event_handlers.base_handler import BaseEventHandler, create_base_event_handler
 from ..tools.context import ToolContext
@@ -469,6 +470,39 @@ class GGbotTui(App[None]):
         if text.strip():
             self.query_one(RichLog).write(text)
 
+    def _render_tool_call(self, name: str) -> None:
+        self.query_one(RichLog).write(Text(f"[tool:{name}]", style="bold magenta"))
+
+    def _render_tool_result(self, name: str, content: str, error: bool) -> None:
+        if name == "status_update":
+            return
+        if content:
+            self.query_one(RichLog).write(content)
+        self.query_one(RichLog).write(Text(f"[/tool:{name}]", style="dim"))
+        if error:
+            self.query_one(RichLog).write(Text(f"Error in tool {name}", style="bold red"))
+
+    def _render_thinking(self, thinking: str) -> None:
+        if thinking and self._thinking_enabled:
+            self.query_one(RichLog).write(Text(f"[thinking] {thinking}", style="dim yellow"))
+
+    def _render_error(self, error_msg: str) -> None:
+        self.query_one(RichLog).write(Text(f"[error] {error_msg}", style="bold red"))
+
+    def _render_status_message(self, status_msg: str) -> None:
+        line = Text("[status] ", style="bold cyan")
+        line.append(status_msg)
+        self.query_one(RichLog).write(line)
+
+    def _handle_permission_request(self, tool_name: str, arguments: dict[str, str]) -> None:
+        if tool_name == "shell_run":
+            command = arguments.get("command", "")
+            if command:
+                self.confirm_shell_run(command)
+
+    def _render_debug_event(self, event_type: str) -> None:
+        self.query_one(RichLog).write(Text(f"[event:{event_type}]", style="dim"))
+
     def _stream_delta(self, delta: str) -> None:
         # Called from worker thread via call_from_thread
         if self._assistant_stream_buffer is None:
@@ -766,8 +800,8 @@ class GGbotTui(App[None]):
 
     @work(thread=True, exclusive=True)
     def _run_query_in_worker(self, user_text: str, *, turn_no: int, title_seed: str | None) -> None:
-        def publish_local(event_type: str, data: dict) -> None:
-            self._event_bus.publish(RuntimeEvent(type=event_type, data=data))
+        def publish_local(event_type: RuntimeEventType, data: dict) -> None:
+            self._event_bus.publish(RuntimeEvent(type=cast(RuntimeEventType, event_type), data=data))
 
         # 使用基础事件处理器发布助手增量输出
         def printer(delta: str) -> None:

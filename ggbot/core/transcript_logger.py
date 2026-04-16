@@ -6,7 +6,7 @@ from typing import Any
 from .domain import RuntimeEvent
 from .event_bus import EventHandler, subscribe_to_events
 from .transcript import Transcript
-from .events import transcript_event, TranscriptEventType
+from .event_mappings import DOMAIN_TO_TRANSCRIPT_EVENT_TYPE_MAP
 
 
 class TranscriptLogger(EventHandler):
@@ -20,29 +20,10 @@ class TranscriptLogger(EventHandler):
     def _setup_subscriptions(self) -> None:
         """设置事件订阅，将所有运行时事件记录到 transcript"""
 
-        # 映射领域事件类型到 transcript 事件类型
-        event_type_map = {
-            "request": "model_message",
-            "response": "model_message",
-            "event": "model_message",
-            "status": "status",
-            "error": "provider_error",
-            "tool_call": "tool_call",
-            "tool_result": "tool_result",
-            "assistant_delta": "model_message",
-            "assistant_final": "model_message",
-            "thinking": "thinking",
-            "turn_update": "turn_update",
-            "turn_complete": "turn_complete",
-            "session_update": "status",
-            "permission_request": "status",
-            "permission_response": "status"
-        }
-
         @self.subscribe(None)  # 订阅所有事件
         def log_all_events(event: RuntimeEvent) -> None:
             """将所有运行时事件记录到 transcript"""
-            transcript_type = event_type_map.get(event.type, "status")
+            transcript_type = DOMAIN_TO_TRANSCRIPT_EVENT_TYPE_MAP.get(event.type, "status")
 
             # 准备要记录的数据
             data = dict(event.data)
@@ -91,7 +72,15 @@ class TranscriptLogger(EventHandler):
 
     def log_runtime_event(self, event: RuntimeEvent) -> None:
         """直接记录运行时事件（向后兼容）"""
-        self.transcript.append_event(event.to_transcript_event())
+        data = dict(event.data)
+        data["_event_source"] = event.source
+        data["_event_type"] = event.type
+
+        transcript_type = DOMAIN_TO_TRANSCRIPT_EVENT_TYPE_MAP.get(event.type, "status")
+        if event.type in ["request", "response", "event", "assistant_delta", "assistant_final"]:
+            self._log_as_model_message(event, transcript_type, data)
+        else:
+            self.transcript.append(transcript_type, data)
 
     def log_domain_event(self, event: RuntimeEvent) -> None:
         """记录领域事件"""

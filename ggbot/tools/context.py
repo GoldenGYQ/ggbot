@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from ..core.events import transcript_event
+from ..core.events import TranscriptEventType, transcript_event
 from ..core.transcript import Transcript
 
 
@@ -28,5 +28,5 @@ class ToolContext:
     def for_call(self, *, tool_name: str, tool_call_id: str | None) -> ToolContext:
         return replace(self, tool_name=tool_name, tool_call_id=tool_call_id)
 
-    def emit(self, event_type: str, data: dict[str, Any]) -> None:
+    def emit(self, event_type: TranscriptEventType, data: dict[str, Any]) -> None:
         self.transcript.append_event(transcript_event(event_type, data))

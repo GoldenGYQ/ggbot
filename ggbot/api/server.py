@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Union
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from ..core.agent_loop import ToolLimits
 from ..core.domain import RuntimeEvent, SessionState
@@ -199,6 +199,15 @@ class APIServer:
         async def health_check():
             """健康检查"""
             return {"status": "healthy", "timestamp": time.time()}
+
+        @self.app.options("/api/v1/health")
+        async def health_check_options():
+            """兼容测试环境下的 CORS 预检请求。"""
+            response = JSONResponse({"ok": True})
+            response.headers["access-control-allow-origin"] = "*"
+            response.headers["access-control-allow-methods"] = "*"
+            response.headers["access-control-allow-headers"] = "*"
+            return response
 
         @self.app.post("/api/v1/messages")
         async def send_message(request: MessageRequest):
@@ -391,12 +400,21 @@ class APIServer:
     async def _handle_send_message(self, request: MessageRequest) -> Dict[str, Any]:
         """处理发送消息请求（兼容旧版本）"""
         try:
-            return await self.api_service.send_message(
+            result = await self.api_service.send_message(
                 content=request.content,
                 session_id=request.session_id,
                 max_turns=request.max_turns,
                 thinking_enabled=request.thinking_enabled
             )
+            if isinstance(result, dict) and result.get("success") is False:
+                raise HTTPException(status_code=500, detail=result.get("error", "Unknown error"))
+            return result
+        except ValidationError as e:
+            logger.error(f"发送消息校验失败: {e}")
+            raise HTTPException(status_code=422, detail=str(e))
+        except ValueError as e:
+            logger.error(f"发送消息参数错误: {e}")
+            raise HTTPException(status_code=422, detail=str(e))
         except Exception as e:
             logger.error(f"发送消息失败: {e}")
             raise HTTPException(status_code=500, detail=str(e))

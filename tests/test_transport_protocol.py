@@ -15,7 +15,7 @@ from ggbot.core.transport_protocol import (
 
 def test_encode_runtime_events_generates_monotonic_seq() -> None:
     events = [
-        runtime_event("turn_info", {"max_turns": 4, "start_turn": 0}),
+        runtime_event("event", {"max_turns": 4, "start_turn": 0}),
         runtime_event("turn_update", {"current_turn": 1, "max_turns": 4}),
         runtime_event("turn_complete", {"turns_used": 1, "max_turns": 4, "completed": True}),
     ]
@@ -39,7 +39,7 @@ def test_encode_runtime_events_generates_monotonic_seq() -> None:
 def test_encode_envelopes_as_ndjson_roundtrip() -> None:
     envelopes = encode_runtime_events(
         session_id="s1",
-        events=[runtime_event("provider_error", {"error": "boom"})],
+        events=[runtime_event("error", {"error": "boom"})],
         ts_ms_factory=lambda: 42,
     )
 

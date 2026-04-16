@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="12bd996d-97df-4b02-b236-fff20fa07f10" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.ggbot/transcripts/sessions.json" beforeDir="false" afterPath="$PROJECT_DIR$/.ggbot/transcripts/sessions.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/API_README.md" beforeDir="false" afterPath="$PROJECT_DIR$/API_README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/doc/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/doc/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/doc/architecture.md" beforeDir="false" afterPath="$PROJECT_DIR$/doc/architecture.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/doc/configuration.md" beforeDir="false" afterPath="$PROJECT_DIR$/doc/configuration.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/doc/development.md" beforeDir="false" afterPath="$PROJECT_DIR$/doc/development.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/example/frontend/tsconfig.json" beforeDir="false" afterPath="$PROJECT_DIR$/example/frontend/tsconfig.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/weather_dalian.bat" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/weather_dalian.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/weather_dalian_simple.sh" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 7
+}]]></component>
+  <component name="ProjectId" id="3COBEOfdMaax6X3s9zOUdXGcGf6" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "git-widget-placeholder": "fuature/runtime",
+    "last_opened_file_path": "D:/Users/gyq16/Desktop/PRJ/GGbot/ggbot",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "configurable.group.tools",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-1d06a55b98c1-74d2a5396914-JavaScript-PY-241.14494.241" />
+        <option value="bundled-python-sdk-0509580d9d50-28c9f5db9ffe-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-241.14494.241" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="12bd996d-97df-4b02-b236-fff20fa07f10" name="Changes" comment="" />
+      <created>1730099506365</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1730099506365</updated>
+      <workItem from="1776246625962" duration="1245000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+</project>

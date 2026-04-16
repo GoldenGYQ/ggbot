@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
@@ -18,7 +18,7 @@ class Message:
 
     def to_dict(self) -> dict[str, Any]:
         """转换为字典表示"""
-        result = {"role": self.role}
+        result: dict[str, Any] = {"role": self.role}
         if self.content is not None:
             result["content"] = self.content
         if self.name is not None:
@@ -136,28 +136,6 @@ class RuntimeEvent:
             "type": self.type,
             "data": self.data,
             "source": self.source
-        }
-
-
-# ==================== 传输事件 ====================
-
-@dataclass(frozen=True)
-class TransportEvent:
-    """传输事件领域模型"""
-    version: int = 1
-    seq: int = 1
-    session_id: str = ""
-    ts_ms: int = 0
-    event: RuntimeEvent = field(default_factory=lambda: RuntimeEvent(type="event"))
-
-    def to_dict(self) -> dict[str, Any]:
-        """转换为字典表示"""
-        return {
-            "version": self.version,
-            "seq": self.seq,
-            "session_id": self.session_id,
-            "ts_ms": self.ts_ms,
-            "event": self.event.to_dict()
         }
 
 
