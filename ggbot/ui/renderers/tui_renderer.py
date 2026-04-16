@@ -70,64 +70,12 @@ def create_tui_render_hooks(tui: Any) -> TuiRenderHooks:
     )
 
 
-def _create_legacy_render_hooks(tui: Any) -> TuiRenderHooks:
-    def _on_status(status_msg: str) -> None:
-        tui.call_from_thread(tui._push_status_update, status_msg)
-        tui.call_from_thread(tui._render_top_right)
-        tui.call_from_thread(tui._render_status)
-        def write_status() -> None:
-            line = Text("[status] ", style="bold cyan")
-            line.append(status_msg)
-            tui.query_one("RichLog").write(line)
-        tui.call_from_thread(write_status)
-
-    return TuiRenderHooks(
-        on_assistant_delta=lambda delta: tui.call_from_thread(tui._stream_delta, delta),
-        on_assistant_final=lambda content: tui.call_from_thread(tui._append_assistant_final, content),
-        on_tool_call=lambda name: tui.call_from_thread(
-            lambda: tui.query_one("RichLog").write(Text(f"[tool:{name}]", style="bold magenta"))
-        ),
-        on_tool_result=lambda name, content, error: tui.call_from_thread(
-            lambda: (
-                None
-                if name == "status_update"
-                else (
-                    tui.query_one("RichLog").write(content) if content else None,
-                    tui.query_one("RichLog").write(Text(f"[/tool:{name}]", style="dim")),
-                    tui.query_one("RichLog").write(Text(f"Error in tool {name}", style="bold red")) if error else None,
-                )
-            )
-        ),
-        on_thinking=lambda thinking: tui.call_from_thread(
-            lambda: tui.query_one("RichLog").write(Text(f"[thinking] {thinking}", style="dim yellow"))
-            if thinking and getattr(tui, "_thinking_enabled", False)
-            else None
-        ),
-        on_turn_update=lambda: tui.call_from_thread(tui._render_status),
-        on_turn_complete=lambda: tui.call_from_thread(tui._render_status),
-        on_session_update=lambda: tui.call_from_thread(tui._render_status),
-        on_error=lambda error_msg: tui.call_from_thread(
-            lambda: tui.query_one("RichLog").write(Text(f"[error] {error_msg}", style="bold red"))
-        ),
-        on_status=_on_status,
-        on_permission_request=lambda tool_name, arguments: tui.call_from_thread(
-            lambda: tui.confirm_shell_run(arguments.get("command", ""))
-            if tool_name == "shell_run" and arguments.get("command", "")
-            else None
-        ),
-        on_debug_event=lambda event_type: tui.call_from_thread(
-            lambda: tui.query_one("RichLog").write(Text(f"[event:{event_type}]", style="dim"))
-        ),
-        is_debug_enabled=lambda: bool(getattr(tui, "_debug_events", False)),
-    )
-
-
 class TuiRenderer(EventHandler):
     """TUI渲染器（只做UI渲染，不处理业务逻辑）"""
 
     def __init__(self, hooks: TuiRenderHooks | Any, event_bus: EventBus | None = None):
         super().__init__(event_bus=event_bus)
-        self.hooks = hooks if isinstance(hooks, TuiRenderHooks) else _create_legacy_render_hooks(hooks)
+        self.hooks = hooks
         self._setup_subscriptions()
 
     def _setup_subscriptions(self) -> None:

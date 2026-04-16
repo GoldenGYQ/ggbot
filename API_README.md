@@ -262,11 +262,19 @@ GGbot支持以下类型的事件，可通过WebSocket或REST API流式响应获�
 | 事件类型 | 描述 | 数据格式 | 流式API支持 |
 |---------|------|----------|------------|
 | `assistant_delta` | 助手流式输出增量 | `{"delta": "text"}` | ✅ |
+| `assistant_final` | 助手最终输出 | `{"content": "text"}` | ✅ |
 | `tool_call` | 工具调用 | `{"name": "tool_name", "arguments": {}}` | ✅ |
+| `tool_result` | 工具执行结果 | `{"name": "tool_name", "content": "text", "error": false}` | ✅ |
 | `tool_output` | 工具执行输出 | `{"name": "tool_name", "output": "text"}` | ✅ |
 | `thinking` | 思考过程 | `{"thinking": "text"}` | ✅ |
 | `turn_update` | 轮次更新 | `{"current_turn": 1, "max_turns": 10}` | ✅ |
+| `turn_complete` | 轮次完成 | `{"turns_used": 1, "max_turns": 8, "completed": true}` | ✅ |
 | `status` | 状态更新 | `{"message": "text", "severity": "info/warning/error"}` | ✅ |
+| `error` | 运行时错误 | `{"error": "error_message"}` | ✅ |
+| `provider_error` | 运行时错误（兼容别名） | `{"error": "error_message"}` | ✅ |
+| `session_update` | 会话更新 | `{"session_id": "id", "title": "title"}` | ✅ |
+| `permission_request` | 权限请求 | `{"tool_name": "shell_run", "arguments": {...}}` | ✅ |
+| `permission_response` | 权限响应 | `{"allowed": true, "reason": "..."}` | ✅ |
 
 ### 控制事件（仅流式API）
 | 事件类型 | 描述 | 数据格式 | 说明 |
@@ -278,9 +286,11 @@ GGbot支持以下类型的事件，可通过WebSocket或REST API流式响应获�
 | 事件类型 | 描述 | 数据格式 |
 |---------|------|----------|
 | `assistant_final` | 助手最终输出 | `{"content": "text"}` |
-| `tool_result` | 工具执行结果 | `{"name": "tool_name", "result": "output"}` |
+| `tool_result` | 工具执行结果 | `{"name": "tool_name", "content": "text", "error": false}` |
 | `turn_complete` | 轮次完成 | `{"turns_used": 3}` |
 | `session_update` | 会话更新 | `{"session_id": "id", "title": "title"}` |
+| `permission_request` | 权限请求 | `{"tool_name": "shell_run", "arguments": {...}}` |
+| `permission_response` | 权限响应 | `{"allowed": true, "reason": "..."}` |
 
 ## 使用示例
 

@@ -28,6 +28,24 @@ from .services import APIService, get_global_api_service
 logger = logging.getLogger(__name__)
 
 
+STREAMABLE_EVENT_TYPES = {
+    "assistant_delta",
+    "assistant_final",
+    "thinking",
+    "tool_call",
+    "tool_result",
+    "tool_output",  # backward-compatible alias
+    "turn_update",
+    "turn_complete",
+    "status",
+    "error",
+    "provider_error",  # backward-compatible alias
+    "session_update",
+    "permission_request",
+    "permission_response",
+}
+
+
 # ==================== 数据模型 ====================
 
 class MessageRequest(BaseModel):
@@ -447,9 +465,9 @@ class APIServer:
             # 流式返回事件
             if "events" in result and result["events"]:
                 for event in result["events"]:
-                    # 只发送增量类型的事件
+                    # 发送可流式事件，兼容旧版别名类型
                     event_type = event.get("type")
-                    if event_type in ["assistant_delta", "tool_output", "thinking", "tool_call"]:
+                    if event_type in STREAMABLE_EVENT_TYPES:
                         yield json.dumps({
                             "type": "event",
                             "event_type": event_type,

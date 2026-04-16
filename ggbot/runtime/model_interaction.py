@@ -139,7 +139,7 @@ def perform_model_turn(
             transcript.append(
                 "thinking",
                 {
-                    "content": thinking_content,
+                    "thinking": thinking_content,
                     "content_len": len(thinking_content),
                     "raw_content": raw_content,
                 },
@@ -149,7 +149,7 @@ def perform_model_turn(
                 runtime_event(
                     "thinking",
                     {
-                        "content": thinking_content,
+                        "thinking": thinking_content,
                         "content_len": len(thinking_content),
                         "raw_content": raw_content,
                     },

@@ -292,6 +292,12 @@ class APIService:
                 on_thinking=lambda data: events_collector.add_thinking(data),
                 on_assistant_delta=lambda data: events_collector.add_assistant_delta(data.get("delta", "")),
                 on_assistant_final=lambda data: events_collector.add_assistant_final(data.get("content", "")),
+                on_tool_call=lambda data: events_collector.add_tool_call_event(data),
+                on_tool_result=lambda data: events_collector.add_tool_result(data),
+                on_status=lambda data: events_collector.add_status(data),
+                on_session_update=lambda data: events_collector.add_session_update(data),
+                on_permission_request=lambda data: events_collector.add_permission_request(data),
+                on_permission_response=lambda data: events_collector.add_permission_response(data),
             )
 
             # 更新会话统计
@@ -516,92 +522,117 @@ class EventsCollector:
         self.tool_calls: List[Dict[str, Any]] = []
         self.event_callback = event_callback  # 实时事件回调
 
-    def add_assistant_delta(self, delta: str):
-        """添加助手增量输出"""
+    def _append_event(
+        self,
+        event_type: str,
+        data: Dict[str, Any],
+        *,
+        aliases: Optional[List[str]] = None,
+        realtime: bool = False,
+    ) -> None:
         event_data = {
-            "type": "assistant_delta",
+            "type": event_type,
             "timestamp": time.time(),
-            "data": {"delta": delta}
+            "data": data,
         }
         self.events.append(event_data)
-        self.final_response += delta
 
-        # 实时发送事件
-        if self.event_callback:
+        if aliases:
+            for alias in aliases:
+                self.events.append(
+                    {
+                        "type": alias,
+                        "timestamp": event_data["timestamp"],
+                        "data": data,
+                    }
+                )
+
+        if realtime and self.event_callback:
             self.event_callback(event_data)
+
+    def add_assistant_delta(self, delta: str):
+        """添加助手增量输出"""
+        self._append_event("assistant_delta", {"delta": delta}, realtime=True)
+        self.final_response += delta
 
     def add_assistant_final(self, content: str):
         """添加助手最终输出"""
-        self.events.append({
-            "type": "assistant_final",
-            "timestamp": time.time(),
-            "data": {"content": content}
-        })
+        self._append_event("assistant_final", {"content": content})
 
     def add_tool_output(self, name: str, output: str):
-        """添加工具输出"""
-        event_data = {
-            "type": "tool_output",
-            "timestamp": time.time(),
-            "data": {"name": name, "output": output}
-        }
-        self.events.append(event_data)
-
-        # 实时发送事件
-        if self.event_callback:
-            self.event_callback(event_data)
+        """添加工具输出（兼容旧版 tool_output 事件）。"""
+        self._append_event(
+            "tool_result",
+            {
+                "name": name,
+                "content": output,
+                "error": False,
+            },
+            aliases=["tool_output"],
+            realtime=True,
+        )
 
     def add_turn_update(self, data: Dict[str, Any]):
         """添加轮次更新"""
-        self.events.append({
-            "type": "turn_update",
-            "timestamp": time.time(),
-            "data": data
-        })
+        self._append_event("turn_update", data)
 
     def add_turn_complete(self, data: Dict[str, Any]):
         """添加轮次完成"""
-        self.events.append({
-            "type": "turn_complete",
-            "timestamp": time.time(),
-            "data": data
-        })
+        self._append_event("turn_complete", data)
+
+    def add_error(self, data: Dict[str, Any]):
+        """添加错误事件（兼容旧版 provider_error 事件）。"""
+        self._append_event("error", data, aliases=["provider_error"])
 
     def add_provider_error(self, data: Dict[str, Any]):
-        """添加提供者错误"""
-        self.events.append({
-            "type": "provider_error",
-            "timestamp": time.time(),
-            "data": data
-        })
+        """添加提供者错误（向后兼容入口）。"""
+        self.add_error(data)
 
     def add_thinking(self, data: Dict[str, Any]):
         """添加思考过程"""
         self.has_thinking = True
-        event_data = {
-            "type": "thinking",
-            "timestamp": time.time(),
-            "data": data
-        }
-        self.events.append(event_data)
+        self._append_event("thinking", data, realtime=True)
 
-        # 实时发送事件
-        if self.event_callback:
-            self.event_callback(event_data)
+    def add_tool_result(self, data: Dict[str, Any]):
+        """添加运行时工具结果事件。"""
+        self._append_event("tool_result", data)
+
+    def add_status(self, data: Dict[str, Any]):
+        """添加状态事件。"""
+        self._append_event("status", data)
+
+    def add_session_update(self, data: Dict[str, Any]):
+        """添加会话更新事件。"""
+        self._append_event("session_update", data)
+
+    def add_permission_request(self, data: Dict[str, Any]):
+        """添加权限请求事件。"""
+        self._append_event("permission_request", data)
+
+    def add_permission_response(self, data: Dict[str, Any]):
+        """添加权限响应事件。"""
+        self._append_event("permission_response", data)
 
     def add_tool_call(self, name: str, arguments: Dict[str, Any]):
-        """添加工具调用"""
+        """添加工具调用（旧接口）。"""
         tool_call = {
             "name": name,
             "arguments": arguments,
             "timestamp": time.time()
         }
         self.tool_calls.append(tool_call)
-        self.events.append({
-            "type": "tool_call",
+        self._append_event("tool_call", tool_call, realtime=True)
+
+    def add_tool_call_event(self, data: Dict[str, Any]):
+        """添加运行时工具调用事件。"""
+        tool_call = {
+            "id": data.get("id"),
+            "name": data.get("name", "unknown"),
+            "arguments": data.get("arguments") if isinstance(data.get("arguments"), dict) else {},
             "timestamp": time.time(),
-            "data": tool_call
-        })
+        }
+        self.tool_calls.append(tool_call)
+        self._append_event("tool_call", data, realtime=True)
 
     def get_events(self) -> List[Dict[str, Any]]:
         """获取所有事件"""
