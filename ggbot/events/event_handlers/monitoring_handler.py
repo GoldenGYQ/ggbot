@@ -7,7 +7,7 @@ from typing import Any
 from datetime import datetime
 import time
 
-from ..domain import RuntimeEvent
+from ...domain.domain import RuntimeEvent
 from ..event_bus import EventHandler, publish_event
 
 
@@ -179,9 +179,9 @@ if __name__ == "__main__":
     monitor = create_monitoring_handler(enable_alerts=True)
 
     # 模拟一些事件
-    from ..domain import create_assistant_delta_event, create_tool_call_event
+    from ...domain.domain import create_assistant_delta_event, create_tool_call_event
     from ..event_bus import publish_event
-    from ..domain import ToolCall, ToolFunction
+    from ...domain.domain import ToolCall, ToolFunction
 
     # 发布测试事件
     publish_event(create_assistant_delta_event("Hello"))

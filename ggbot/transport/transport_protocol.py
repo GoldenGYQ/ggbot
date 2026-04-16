@@ -4,11 +4,11 @@ import json
 import time
 from dataclasses import dataclass
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
-from .events import TranscriptEventType
-from .domain import RuntimeEvent
-from .runtime_events import runtime_event_to_transcript_type
+from .transcript_contract import TranscriptEventType
+from ..domain.domain import RuntimeEvent
+from ..events.runtime_events import runtime_event_to_transcript_type
 
 
 TRANSPORT_PROTOCOL_VERSION = 1
@@ -132,6 +132,6 @@ def decode_transport_envelope(payload: dict[str, Any]) -> TransportEnvelope:
         seq=seq,
         ts_ms=ts_ms,
         source=source,
-        event_type=event_type,
+        event_type=cast(TranscriptEventType, event_type),
         data=data,
     )

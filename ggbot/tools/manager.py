@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from ..core.config import Settings
+from ..app.config import Settings
 from .context import ToolContext
 from .file_tools import make_file_tools
 from .jobs_tool import make_job_tools
@@ -15,7 +15,7 @@ from .http_tools import make_http_tools
 from .workspace_tools import make_workspace_tools
 from .time_tools import make_time_tools
 from .web import make_web_tools
-from ..core.workspace_manager import init_workspace_manager
+from ..workspace.workspace_manager import init_workspace_manager
 
 
 ShellConfirmCallback = Callable[[str], str | None]

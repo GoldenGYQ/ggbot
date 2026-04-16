@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import sys
@@ -9,13 +9,13 @@ from typing import Optional, List
 
 import typer
 
-from ggbot.core.agent_loop import ToolLimits, run_query
-from ggbot.core.runtime import create_agent_bootstrap, create_app_session
-from ggbot.core.runtime_events import consume_runtime_events
+from ggbot.runtime.agent_loop import ToolLimits, run_query
+from ggbot.app.app_bootstrap import create_agent_bootstrap, create_app_session
+from ggbot.events.runtime_events import consume_runtime_events
 from ggbot.tools.context import ToolContext
 from ggbot.tools.registry import ToolRegistry
-from ggbot.core.transcript import Transcript
-from ggbot.core.types import ChatMessage
+from ggbot.state.transcript import Transcript
+from ggbot.domain.types import ChatMessage
 # 事件监听器导入
 try:
     from ggbot.cli_tools.event_monitor import (
@@ -754,7 +754,7 @@ def api(
         print("请确保已安装FastAPI和uvicorn：pip install fastapi uvicorn")
         return
 
-    from .core.runtime import create_agent_bootstrap, create_app_session
+    from .app.app_bootstrap import create_agent_bootstrap, create_app_session
 
     print(f"启动GGbot API服务器...")
     print(f"地址: http://{host}:{port}")

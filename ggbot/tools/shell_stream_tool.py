@@ -8,7 +8,7 @@ import shlex
 
 from pydantic import BaseModel, Field
 
-from ..core.workspace_manager import get_workspace_manager, PermissionError
+from ..workspace.workspace_manager import get_workspace_manager, PermissionError
 from .context import ToolContext
 from .registry import tool
 

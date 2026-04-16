@@ -5,10 +5,19 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Protocol
 
-from .events import TranscriptEvent
-from .types import ChatMessage
+from ..domain.types import ChatMessage
+
+
+class TranscriptRecord(Protocol):
+    @property
+    def type(self) -> str:
+        ...
+
+    @property
+    def data(self) -> dict[str, Any]:
+        ...
 
 
 def _now_ms() -> int:
@@ -39,7 +48,7 @@ class Transcript:
         with self._path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
-    def append_event(self, event: TranscriptEvent) -> None:
+    def append_event(self, event: TranscriptRecord) -> None:
         self.append(event.type, event.data)
 
     def iter_events(self) -> Iterable[dict[str, Any]]:

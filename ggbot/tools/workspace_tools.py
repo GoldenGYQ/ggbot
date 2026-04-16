@@ -4,8 +4,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from ..core.permissions import ensure_under_root
-from ..core.workspace_manager import get_workspace_manager
+from ..workspace.permissions import ensure_under_root
+from ..workspace.workspace_manager import get_workspace_manager
 from .registry import tool
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from .domain import RuntimeEventType
-from .events import TranscriptEventType
+from ..domain.domain import RuntimeEventType
+from ..transport.transcript_contract import TranscriptEventType
 
 # Domain event type -> transcript event type.
 DOMAIN_TO_TRANSCRIPT_EVENT_TYPE_MAP: dict[RuntimeEventType, TranscriptEventType] = {

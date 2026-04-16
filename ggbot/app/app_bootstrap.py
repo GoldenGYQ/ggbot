@@ -7,15 +7,15 @@ from typing import Any, Literal
 from .config import Settings
 from ..prompts import PromptManager
 from ..prompts.types import PromptMode
-from .sessions import DefaultSessions, default_sessions
+from ..state.sessions import DefaultSessions, default_sessions
 from ..tools.manager import ShellConfirmCallback, ToolManager, create_tool_manager
 from .client_factory import make_llm_client
 from ..providers.types import ChatCompletionClient
 from ..tools.registry import ToolRegistry
-from .events import transcript_event
-from .transcript import Transcript, clear_transcript, load_model_messages, open_session
-from .transcript_logger import create_transcript_logger
-from .types import ChatMessage
+from ..transport.transcript_contract import transcript_event
+from ..state.transcript import Transcript, clear_transcript, load_model_messages, open_session
+from ..events.transcript_logger import create_transcript_logger
+from ..domain.types import ChatMessage
 
 
 @dataclass
@@ -31,7 +31,7 @@ class AgentRuntime:
 
     def __post_init__(self):
         # 初始化 transcript 记录器
-        from .transcript_logger import create_transcript_logger
+        from ..events.transcript_logger import create_transcript_logger
         self.transcript_logger = create_transcript_logger(self.transcript)
 
 

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 from rich.text import Text
 
-from ...core.domain import (
+from ...domain.domain import (
     PermissionDecision,
     RuntimeEvent,
     ToolCall,
@@ -21,8 +21,8 @@ from ...core.domain import (
     create_turn_complete_event,
     create_turn_update_event,
 )
-from ...core.event_bus import EventBus, EventHandler, publish_event
-from ...core.types import ToolCall as CoreToolCall
+from ...events.event_bus import EventBus, EventHandler, publish_event
+from ...domain.domain import ToolCall as CoreToolCall
 
 
 @dataclass(frozen=True)

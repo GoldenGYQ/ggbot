@@ -23,8 +23,8 @@ from rich.syntax import Syntax
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.prompt import Prompt
 
-from ..core.domain import RuntimeEvent, RuntimeEventType
-from ..core.event_bus import subscribe_to_events, get_global_event_bus
+from ..domain.domain import RuntimeEvent, RuntimeEventType
+from ..events.event_bus import subscribe_to_events, get_global_event_bus
 
 
 class OutputFormat(str, Enum):

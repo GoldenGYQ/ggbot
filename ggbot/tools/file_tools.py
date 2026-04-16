@@ -4,7 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from ..core.permissions import ensure_under_root
+from ..workspace.permissions import ensure_under_root
 from .registry import tool
 
 

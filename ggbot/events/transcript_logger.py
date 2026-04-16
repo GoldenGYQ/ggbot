@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from .domain import RuntimeEvent
+from ..domain.domain import RuntimeEvent
 from .event_bus import EventHandler, subscribe_to_events
-from .transcript import Transcript
+from ..state.transcript import Transcript
 from .event_mappings import DOMAIN_TO_TRANSCRIPT_EVENT_TYPE_MAP
 
 

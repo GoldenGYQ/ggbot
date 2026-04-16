@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..domain import (
+from ...domain.domain import (
     PermissionDecision,
     RuntimeEvent,
     SessionState,
@@ -22,7 +22,7 @@ from ..domain import (
     create_turn_update_event,
 )
 from ..event_bus import EventBus, EventHandler, publish_event
-from ..types import ToolCall as CoreToolCall
+from ...domain.types import ToolCall as CoreToolCall
 
 
 def _normalize_assistant_delta_payload(data: dict[str, Any]) -> dict[str, str]:

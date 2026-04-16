@@ -8,7 +8,7 @@ from typing import Any, Callable, TypeVar, get_type_hints
 
 from pydantic import BaseModel
 
-from ..core.types import ToolSpec
+from ..domain.types import ToolSpec
 from .context import ToolContext
 
 

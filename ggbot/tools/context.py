@@ -4,8 +4,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from ..core.events import TranscriptEventType, transcript_event
-from ..core.transcript import Transcript
+from ..transport.transcript_contract import TranscriptEventType, transcript_event
+from ..state.transcript import Transcript
 
 
 @dataclass(frozen=True)

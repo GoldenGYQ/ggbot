@@ -15,13 +15,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
-from ..core.agent_loop import ToolLimits
-from ..core.domain import RuntimeEvent, SessionState
-from ..core.event_bus import get_global_event_bus, subscribe_to_events
-from ..core.runtime import AgentRuntime
-from ..core.session_store import SessionStore
-from ..core.transcript import Transcript
-from ..core.types import ChatMessage
+from ..runtime.agent_loop import ToolLimits
+from ..domain.domain import RuntimeEvent, SessionState
+from ..events.event_bus import get_global_event_bus, subscribe_to_events
+from ..app.app_bootstrap import AgentRuntime
+from ..state.session_store import SessionStore
+from ..state.transcript import Transcript
+from ..domain.types import ChatMessage
 
 from .services import APIService, get_global_api_service
 
@@ -324,6 +324,8 @@ class APIServer:
                 message_id = data.get("id", str(uuid.uuid4()))
 
                 # 处理命令
+                if not isinstance(command, str):
+                    raise ValueError("命令必须是字符串")
                 response = await self._handle_command(command, payload)
 
                 # 发送响应
@@ -606,25 +608,3 @@ def run_api_server(runtime: AgentRuntime, host: str = "127.0.0.1", port: int = 8
     server.run()
 
 
-if __name__ == "__main__":
-    # 测试代码
-    import sys
-    from pathlib import Path
-
-    # 添加项目路径
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-    from ggbot.core.runtime import create_agent_bootstrap
-    from ggbot.core.config import load_settings
-
-    # 加载设置
-    settings = load_settings()
-
-    # 创建运行时
-    # 这里需要根据实际情况创建runtime
-    # 暂时打印信息
-    print("API服务器模块加载成功")
-    print("使用方法:")
-    print("  from ggbot.api import create_api_server")
-    print("  server = create_api_server(runtime)")
-    print("  server.run()")

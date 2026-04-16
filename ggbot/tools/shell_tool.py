@@ -8,7 +8,7 @@ import time
 
 from pydantic import BaseModel, Field
 
-from ..core.workspace_manager import get_workspace_manager, PermissionError
+from ..workspace.workspace_manager import get_workspace_manager, PermissionError
 from .registry import tool
 from .job_store import JobRecord, jobs_dir, new_job_id, upsert_job
 

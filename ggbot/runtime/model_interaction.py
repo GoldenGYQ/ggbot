@@ -3,13 +3,13 @@ from __future__ import annotations
 import re
 import traceback
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from ..providers.types import ChatCompletionClient, ProviderError
-from .domain import RuntimeEvent
-from .runtime_events import runtime_event
-from .transcript import Transcript
-from .types import ChatMessage, ToolCall
+from ..domain.domain import RuntimeEvent
+from ..events.runtime_events import runtime_event
+from ..state.transcript import Transcript
+from ..domain.types import ChatMessage, ToolCall
 
 
 @dataclass(frozen=True)
@@ -79,7 +79,7 @@ def perform_model_turn(
     messages: list[ChatMessage],
     transcript: Transcript,
     tools: list[dict[str, Any]],
-    stream_printer: callable | None,
+    stream_printer: Callable[[str], None] | None,
     thinking_enabled: bool,
 ) -> ModelTurnOutcome:
     events: list[RuntimeEvent] = []

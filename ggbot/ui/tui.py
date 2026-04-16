@@ -15,10 +15,10 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Footer, Header, Input, RichLog, Static
 
-from ..core.sessions import default_sessions
-from ..core.agent_loop import run_query
-from ..core.agent_loop import ToolLimits
-from ..core.runtime import (
+from ..state.sessions import default_sessions
+from ..runtime.agent_loop import run_query
+from ..runtime.agent_loop import ToolLimits
+from ..app.app_bootstrap import (
     AgentRuntime,
     create_agent_bootstrap,
     create_app_session,
@@ -26,13 +26,13 @@ from ..core.runtime import (
     reset_runtime_history,
     switch_runtime_session,
 )
-from ..core.runtime_events import consume_runtime_events
-from ..core.session_store import SessionStore
-from ..core.transcript import Transcript
-from ..core.types import ChatMessage
-from ..core.domain import RuntimeEvent, RuntimeEventType, SessionState, PermissionDecision
-from ..core.event_bus import EventBus
-from ..core.event_handlers.base_handler import BaseEventHandler, create_base_event_handler
+from ..events.runtime_events import consume_runtime_events
+from ..state.session_store import SessionStore
+from ..state.transcript import Transcript
+from ..domain.types import ChatMessage
+from ..domain.domain import RuntimeEvent, RuntimeEventType, SessionState, PermissionDecision
+from ..events.event_bus import EventBus
+from ..events.event_handlers.base_handler import BaseEventHandler, create_base_event_handler
 from ..tools.context import ToolContext
 from .pets import PetBones, Species, list_species, render_sprite
 from .renderers.tui_renderer import TuiEventHandler, create_tui_renderer

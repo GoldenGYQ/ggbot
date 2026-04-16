@@ -7,14 +7,14 @@ import json
 from ..providers.types import ChatCompletionClient
 from ..tools.context import ToolContext
 from ..tools.registry import ToolRegistry
-from .events import TranscriptEventType
+from ..transport.transcript_contract import TranscriptEventType
 from .history_repair import auto_heal_missing_tool_messages, sanitize_orphan_tool_messages
 from .model_interaction import extract_thinking_content, perform_model_turn
-from .domain import RuntimeEvent
-from .runtime_events import runtime_event
+from ..domain.domain import RuntimeEvent
+from ..events.runtime_events import runtime_event
 from .tool_execution import execute_tool_call
-from .transcript import Transcript
-from .types import ChatMessage
+from ..state.transcript import Transcript
+from ..domain.types import ChatMessage
 
 
 @dataclass

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from ..core.permissions import ensure_under_root
+from ..workspace.permissions import ensure_under_root
 from .job_store import JobRecord, load_jobs, pid_is_running, save_jobs
 from .registry import tool
 

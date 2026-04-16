@@ -3,9 +3,9 @@
 from collections.abc import Callable
 from typing import Any
 
-from .domain import RuntimeEvent, RuntimeEventType
+from ..domain.domain import RuntimeEvent, RuntimeEventType
 from .event_mappings import DOMAIN_TO_TRANSCRIPT_EVENT_TYPE_MAP
-from .events import TranscriptEventType
+from ..transport.transcript_contract import TranscriptEventType
 
 
 def runtime_event_to_transcript_type(event: RuntimeEvent) -> TranscriptEventType:

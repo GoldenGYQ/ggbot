@@ -8,18 +8,18 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Callable
 
-from ..core.agent_loop import ToolLimits, run_query
-from ..core.domain import RuntimeEvent
-from ..core.event_bus import EventSubscription, get_global_event_bus, subscribe_to_events
-from ..core.runtime import (
+from ..runtime.agent_loop import ToolLimits, run_query
+from ..domain.domain import RuntimeEvent
+from ..events.event_bus import EventSubscription, get_global_event_bus, subscribe_to_events
+from ..app.app_bootstrap import (
     AgentRuntime,
     switch_runtime_session,
 )
-from ..core.runtime_events import consume_runtime_events
-from ..core.sessions import default_sessions
-from ..core.session_store import SessionStore
-from ..core.transcript import Transcript
-from ..core.types import ChatMessage
+from ..events.runtime_events import consume_runtime_events
+from ..state.sessions import default_sessions
+from ..state.session_store import SessionStore
+from ..state.transcript import Transcript
+from ..domain.types import ChatMessage
 from ..tools.context import ToolContext
 
 logger = logging.getLogger(__name__)
