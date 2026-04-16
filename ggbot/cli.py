@@ -5,29 +5,16 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
 import typer
 
 from ggbot.runtime.agent_loop import ToolLimits, run_query
 from ggbot.app.app_bootstrap import create_agent_bootstrap, create_app_session
 from ggbot.events.runtime_events import consume_runtime_events
-from ggbot.tools.context import ToolContext
 from ggbot.tools.registry import ToolRegistry
 from ggbot.state.transcript import Transcript
 from ggbot.domain.types import ChatMessage
-# 事件监听器导入
-try:
-    from ggbot.cli_tools.event_monitor import (
-        EventFilter,
-        OutputFormat,
-        run_interactive_monitor,
-        run_simple_monitor,
-        create_event_filter_from_args
-    )
-    EVENT_MONITOR_AVAILABLE = True
-except ImportError:
-    EVENT_MONITOR_AVAILABLE = False
 
 # ANSI color codes for log highlighting
 COLOR_RESET = "\033[0m"
@@ -654,89 +641,6 @@ def log_view(
                 print(rendered)
         except KeyboardInterrupt:
             print("\nStopped following.")
-
-
-@app.command("events")
-def event_monitor(
-    interactive: bool = typer.Option(
-        False,
-        "--interactive", "-i",
-        help="使用交互式界面（Rich TUI）"
-    ),
-    format: str = typer.Option(
-        "text",
-        "--format", "-f",
-        help="输出格式：text, json, rich, table",
-        case_sensitive=False
-    ),
-    types: Optional[List[str]] = typer.Option(
-        None,
-        "--type", "-t",
-        help="过滤事件类型（可多次指定）"
-    ),
-    source: Optional[str] = typer.Option(
-        None,
-        "--source", "-s",
-        help="过滤事件来源（包含匹配）"
-    ),
-    contains: Optional[str] = typer.Option(
-        None,
-        "--contains", "-c",
-        help="过滤事件数据内容（包含匹配）"
-    ),
-    severity: Optional[str] = typer.Option(
-        None,
-        "--severity",
-        help="最小严重级别：debug, info, warning, error, critical"
-    ),
-    duration: Optional[float] = typer.Option(
-        None,
-        "--duration", "-d",
-        help="运行时长（秒），默认持续运行"
-    ),
-) -> None:
-    """实时监听运行时事件"""
-
-    if not EVENT_MONITOR_AVAILABLE:
-        print("错误：事件监听器模块不可用")
-        print("请确保 ggbot.cli.event_monitor 模块已正确安装")
-        return
-
-    # 验证输出格式
-    try:
-        output_format = OutputFormat(format.lower())
-    except ValueError:
-        print(f"错误：无效的输出格式 '{format}'")
-        print("可用格式：text, json, rich, table")
-        return
-
-    # 创建事件过滤器
-    event_filter = create_event_filter_from_args(
-        event_types=types,
-        source=source,
-        contains=contains,
-        min_severity=severity
-    )
-
-    if interactive:
-        # 交互式模式
-        if output_format != OutputFormat.RICH:
-            print("注意：交互式模式强制使用 rich 格式")
-
-        try:
-            run_interactive_monitor(event_filter, OutputFormat.RICH)
-        except KeyboardInterrupt:
-            print("\n已退出交互式模式")
-        except Exception as e:
-            print(f"错误：{e}")
-    else:
-        # 简单模式（单进程）
-        try:
-            run_simple_monitor(event_filter, output_format, duration)
-        except KeyboardInterrupt:
-            print("\n已停止监听")
-        except Exception as e:
-            print(f"错误：{e}")
 
 
 @app.command()
