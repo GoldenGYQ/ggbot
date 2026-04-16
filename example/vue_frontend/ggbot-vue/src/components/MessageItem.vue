@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import type { Message } from '../stores/chat';
 import ThinkingBox from './ThinkingBox.vue';
+import PlanProgress from './PlanProgress.vue';
 import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css';
@@ -37,6 +38,10 @@ const formattedContent = computed(() => {
     <div class="message-content">
       <div v-if="isAssistant && message.thinking" class="thinking-wrapper">
         <ThinkingBox :thinking="message.thinking" />
+      </div>
+      
+      <div v-if="isAssistant && message.plan && message.plan.length > 0" class="plan-wrapper">
+        <PlanProgress :plan="message.plan" />
       </div>
       
       <div class="bubble">
@@ -150,7 +155,7 @@ const formattedContent = computed(() => {
   font-size: 0.9em;
 }
 
-.thinking-wrapper {
+.thinking-wrapper, .plan-wrapper {
   margin-bottom: 8px;
 }
 

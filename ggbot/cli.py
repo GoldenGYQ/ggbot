@@ -145,6 +145,16 @@ def _render_event_line(
         err = str(data.get("error") or "unknown")
         return f"{ts_prefix}{COLOR_YELLOW}[EVENT]{COLOR_RESET} {COLOR_RED}provider_error{COLOR_RESET} {err}"
 
+    if event_type == "plan_update":
+        plan = data.get("plan") or []
+        lines = []
+        for i, item in enumerate(plan, 1):
+            status = "x" if item.get("completed") else " "
+            tool = f" ({item['tool']})" if item.get("tool") else ""
+            lines.append(f"  {i}. [{status}] {item.get('text')}{tool}")
+        plan_text = "\n".join(lines)
+        return f"{ts_prefix}{COLOR_YELLOW}[PLAN]{COLOR_RESET}\n{plan_text}"
+
     if event_type == "status":
         msg = str(data.get("message") or "")
         stage = data.get("stage")

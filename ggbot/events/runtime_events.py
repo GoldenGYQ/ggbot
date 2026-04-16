@@ -36,6 +36,7 @@ def consume_runtime_events(
     on_tool_result: Callable[[dict[str, Any]], None] | None = None,
     on_status: Callable[[dict[str, Any]], None] | None = None,
     on_session_update: Callable[[dict[str, Any]], None] | None = None,
+    on_plan_update: Callable[[dict[str, Any]], None] | None = None,
     on_permission_request: Callable[[dict[str, Any]], None] | None = None,
     on_permission_response: Callable[[dict[str, Any]], None] | None = None,
 ) -> None:
@@ -47,6 +48,8 @@ def consume_runtime_events(
             on_turn_update(event.data)
         elif event.type == "turn_complete" and on_turn_complete is not None:
             on_turn_complete(event.data)
+        elif event.type == "plan_update" and on_plan_update is not None:
+            on_plan_update(event.data)  
         elif event.type == "thinking" and on_thinking is not None:
             on_thinking(event.data)
         elif event.type == "assistant_delta" and on_assistant_delta is not None:

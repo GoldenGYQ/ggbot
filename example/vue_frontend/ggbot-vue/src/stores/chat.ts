@@ -7,7 +7,8 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   thinking?: string;
-  tools?: { name: string; args: any; result?: any; status: 'calling' | 'done' | 'error' }[];
+  plan?: { completed: boolean; text: string; tool?: string }[];
+  tools?: { name: string; args: any; result?: any; status: 'calling' | 'done' | 'error'; requires_permission?: boolean }[];
   status?: 'pending' | 'done' | 'error';
 }
 
@@ -48,6 +49,23 @@ export const chatStore = reactive({
     this.sessions.unshift(session);
     this.currentSessionId = session.id;
     this.messages = [];
+  },
+
+  async deleteSession(sessionId: string) {
+    try {
+      await api.deleteSession(sessionId);
+      this.sessions = this.sessions.filter(s => s.id !== sessionId);
+      if (this.currentSessionId === sessionId) {
+        if (this.sessions.length > 0) {
+          this.selectSession(this.sessions[0].id);
+        } else {
+          this.currentSessionId = null;
+          this.messages = [];
+        }
+      }
+    } catch (err) {
+      console.error('Delete session failed:', err);
+    }
   },
 
   addMessage(message: Message) {

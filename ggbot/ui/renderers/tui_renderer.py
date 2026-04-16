@@ -32,6 +32,7 @@ class TuiRenderHooks:
     on_tool_call: Callable[[str], None]
     on_tool_result: Callable[[str, str, bool], None]
     on_thinking: Callable[[str], None]
+    on_plan_update: Callable[[list[dict[str, Any]]], None]
     on_turn_update: Callable[[], None]
     on_turn_complete: Callable[[], None]
     on_session_update: Callable[[], None]
@@ -57,6 +58,7 @@ def create_tui_render_hooks(tui: Any) -> TuiRenderHooks:
             tui._render_tool_result, name, content, error
         ),
         on_thinking=lambda thinking: tui.call_from_thread(tui._render_thinking, thinking),
+        on_plan_update=lambda plan: tui.call_from_thread(tui._render_plan, plan),
         on_turn_update=lambda: tui.call_from_thread(tui._render_status),
         on_turn_complete=lambda: tui.call_from_thread(tui._render_status),
         on_session_update=lambda: tui.call_from_thread(tui._render_status),
@@ -117,6 +119,13 @@ class TuiRenderer(EventHandler):
             thinking = event.data.get("thinking", "")
             if thinking:
                 self.hooks.on_thinking(str(thinking))
+
+        # 订阅计划更新事件 - 只做渲染
+        @self.subscribe(["plan_update"])
+        def on_plan_update(event: RuntimeEvent) -> None:
+            plan = event.data.get("plan", [])
+            if plan:
+                self.hooks.on_plan_update(plan)
 
         # 订阅轮次更新事件 - 只做渲染
         @self.subscribe(["turn_update"])

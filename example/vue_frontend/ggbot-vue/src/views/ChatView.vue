@@ -37,6 +37,11 @@ const handleGGEvent = (event: any) => {
     if (lastMsg && lastMsg.role === 'assistant') {
       lastMsg.thinking = (lastMsg.thinking || '') + (data.thinking || '');
     }
+  } else if (event_type === 'plan_update') {
+    const lastMsg = chatStore.messages[chatStore.messages.length - 1];
+    if (lastMsg && lastMsg.role === 'assistant') {
+      lastMsg.plan = data.plan;
+    }
   } else if (event_type === 'tool_call') {
     const lastMsg = chatStore.messages[chatStore.messages.length - 1];
     if (lastMsg && lastMsg.role === 'assistant') {
@@ -180,6 +185,13 @@ watch(() => chatStore.messages.length, scrollToBottom);
         >
           <span class="session-icon">💬</span>
           <span class="session-title">{{ session.title || '新对话' }}</span>
+          <button 
+            class="delete-session-btn" 
+            @click.stop="chatStore.deleteSession(session.id)"
+            title="删除对话"
+          >
+            ×
+          </button>
         </div>
       </nav>
       
@@ -316,6 +328,27 @@ watch(() => chatStore.messages.length, scrollToBottom);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+}
+
+.delete-session-btn {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  color: #999;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: all 0.2s;
+}
+
+.session-item:hover .delete-session-btn {
+  opacity: 1;
+}
+
+.delete-session-btn:hover {
+  color: #ff4d4f;
 }
 
 .sidebar-footer {

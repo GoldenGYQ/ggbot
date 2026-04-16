@@ -115,6 +115,7 @@ RuntimeEventType = Literal[
     "assistant_delta",
     "assistant_final",
     "thinking",
+    "plan_update",
     "turn_update",
     "turn_complete",
     "session_update",
@@ -201,6 +202,14 @@ def create_assistant_final_event(content: str) -> RuntimeEvent:
     return RuntimeEvent(
         type="assistant_final",
         data={"content": content}
+    )
+
+
+def create_plan_update_event(plan: list[dict[str, Any]]) -> RuntimeEvent:
+    """创建计划更新事件"""
+    return RuntimeEvent(
+        type="plan_update",
+        data={"plan": plan}
     )
 
 

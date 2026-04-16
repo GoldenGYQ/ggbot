@@ -485,6 +485,31 @@ class GGbotTui(App[None]):
         if thinking and self._thinking_enabled:
             self.query_one(RichLog).write(Text(f"[thinking] {thinking}", style="dim yellow"))
 
+    def _render_plan(self, plan: list[dict[str, Any]]) -> None:
+        from rich.table import Table
+        from rich.panel import Panel
+        
+        table = Table.grid(expand=True)
+        table.add_column(width=4)
+        table.add_column()
+        
+        for i, item in enumerate(plan, 1):
+            status = "✅" if item.get("completed") else "⏳"
+            text = item.get("text", "")
+            tool = f" [dim]({item.get('tool')})[/dim]" if item.get("tool") else ""
+            table.add_row(status, f"{text}{tool}")
+            
+        panel = Panel(
+            table, 
+            title="[bold blue]Execution Plan[/bold blue]", 
+            border_style="blue",
+            padding=(0, 1)
+        )
+        
+        # We update the stream area or just write to log
+        # For now, let's write to log but we might want a persistent area
+        self.query_one(RichLog).write(panel)
+
     def _render_error(self, error_msg: str) -> None:
         self.query_one(RichLog).write(Text(f"[error] {error_msg}", style="bold red"))
 

@@ -32,6 +32,7 @@ STREAMABLE_EVENT_TYPES = {
     "assistant_delta",
     "assistant_final",
     "thinking",
+    "plan_update",
     "tool_call",
     "tool_result",
     "turn_update",

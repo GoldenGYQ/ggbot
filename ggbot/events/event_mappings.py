@@ -15,6 +15,7 @@ DOMAIN_TO_TRANSCRIPT_EVENT_TYPE_MAP: dict[RuntimeEventType, TranscriptEventType]
     "assistant_delta": "model_message",
     "assistant_final": "model_message",
     "thinking": "thinking",
+    "plan_update": "status",
     "turn_update": "turn_update",
     "turn_complete": "turn_complete",
     "session_update": "status",

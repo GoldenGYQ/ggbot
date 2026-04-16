@@ -73,6 +73,33 @@ def extract_thinking_content(content: str) -> tuple[str | None, str]:
     return None, content
 
 
+def parse_plan_items(plan_text: str) -> list[dict[str, Any]]:
+    """Parse plan text into structured items."""
+    items = []
+    lines = plan_text.strip().split("\n")
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Match pattern: 1. [x] Task (tool) or 1. [ ] Task (tool)
+        match = re.match(r"(\d+\.\s*)?\[(x| )\]\s*(.*?)(?:\s*\((.*?)\))?$", line)
+        if match:
+            items.append({
+                "completed": match.group(2) == "x",
+                "text": match.group(3).strip(),
+                "tool": match.group(4).strip() if match.group(4) else None
+            })
+        else:
+            # Fallback for lines without checkboxes
+            items.append({
+                "completed": False,
+                "text": line,
+                "tool": None
+            })
+    return items
+
+
 def perform_model_turn(
     *,
     client: ChatCompletionClient,
@@ -84,6 +111,8 @@ def perform_model_turn(
     event_callback: Callable[[RuntimeEvent], None] | None = None,
 ) -> ModelTurnOutcome:
     events: list[RuntimeEvent] = []
+    accumulated_text = ""
+    last_plan_content = ""
 
     def add_event(event: RuntimeEvent):
         events.append(event)
@@ -91,12 +120,26 @@ def perform_model_turn(
             event_callback(event)
 
     def on_delta(text: str) -> None:
+        nonlocal accumulated_text, last_plan_content
+        accumulated_text += text
+        
         if stream_printer:
             stream_printer(text)
+        
         if event_callback:
             # assistant_delta typically doesn't go to transcript/final events
             # so we only call the callback
             event_callback(runtime_event("assistant_delta", {"delta": text}))
+            
+            # Real-time plan parsing
+            if "<plan>" in accumulated_text and "</plan>" in accumulated_text:
+                plan_match = re.search(r"<plan>(.*?)</plan>", accumulated_text, re.DOTALL)
+                if plan_match:
+                    plan_content = plan_match.group(1).strip()
+                    if plan_content != last_plan_content:
+                        last_plan_content = plan_content
+                        plan_items = parse_plan_items(plan_content)
+                        event_callback(runtime_event("plan_update", {"plan": plan_items}))
 
     try:
         assistant_final = client.stream_and_collect(messages=messages, tools=tools, on_text_delta=on_delta)
