@@ -7,10 +7,10 @@ from typing import Protocol
 
 from ..tools.context import ToolContext
 from ..tools.registry import ToolRegistry, parse_tool_arguments
-from ..domain.domain import RuntimeEvent, RuntimeEventType
+from ..models.runtime_models import RuntimeEvent, RuntimeEventType
 from ..events.runtime_events import runtime_event
 from ..state.transcript import Transcript
-from ..domain.types import ChatMessage, ToolCall
+from ..models.protocol_models import ChatMessage, ToolCall
 
 
 class ToolBudgetChecker(Protocol):

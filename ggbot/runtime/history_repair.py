@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..state.transcript import Transcript
-from ..domain.types import ChatMessage
+from ..models.protocol_models import ChatMessage
 
 
 def auto_heal_missing_tool_messages(*, messages: list[ChatMessage], transcript: Transcript) -> None:

@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from ..domain.domain import RuntimeEvent, RuntimeEventType
+from ..models.runtime_models import RuntimeEvent, RuntimeEventType
 from .event_mappings import DOMAIN_TO_TRANSCRIPT_EVENT_TYPE_MAP
 from ..transport.transcript_contract import TranscriptEventType
 

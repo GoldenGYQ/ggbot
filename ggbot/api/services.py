@@ -9,7 +9,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Callable
 
 from ..runtime.agent_loop import ToolLimits, run_query
-from ..domain.domain import RuntimeEvent
+from ..models.runtime_models import RuntimeEvent
 from ..events.event_bus import EventSubscription, get_global_event_bus, subscribe_to_events
 from ..app.app_bootstrap import (
     AgentRuntime,
@@ -19,7 +19,7 @@ from ..events.runtime_events import consume_runtime_events
 from ..state.sessions import default_sessions
 from ..state.session_store import SessionStore
 from ..state.transcript import Transcript
-from ..domain.types import ChatMessage
+from ..models.protocol_models import ChatMessage
 from ..tools.context import ToolContext
 
 logger = logging.getLogger(__name__)

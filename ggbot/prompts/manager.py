@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..app.config import Settings
-from ..domain.types import ChatMessage, ToolSpec
+from ..models.protocol_models import ChatMessage, ToolSpec
 from .builder import PromptBuilder
 from .repository import PromptRepository
 from .types import PromptMode, RenderedPrompt, PromptContext

@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ..providers.types import ChatCompletionClient, ProviderError
-from ..domain.domain import RuntimeEvent
+from ..models.runtime_models import RuntimeEvent
 from ..events.runtime_events import runtime_event
 from ..state.transcript import Transcript
-from ..domain.types import ChatMessage, ToolCall
+from ..models.protocol_models import ChatMessage, ToolCall
 
 
 @dataclass(frozen=True)

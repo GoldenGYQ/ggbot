@@ -16,12 +16,12 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from ..runtime.agent_loop import ToolLimits
-from ..domain.domain import RuntimeEvent, SessionState
+from ..models.runtime_models import RuntimeEvent, SessionState
 from ..events.event_bus import get_global_event_bus, subscribe_to_events
 from ..app.app_bootstrap import AgentRuntime
 from ..state.session_store import SessionStore
 from ..state.transcript import Transcript
-from ..domain.types import ChatMessage
+from ..models.protocol_models import ChatMessage
 
 from .services import APIService, get_global_api_service
 

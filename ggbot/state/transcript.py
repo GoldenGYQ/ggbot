@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Protocol
 
-from ..domain.types import ChatMessage
+from ..models.protocol_models import ChatMessage
 
 
 class TranscriptRecord(Protocol):

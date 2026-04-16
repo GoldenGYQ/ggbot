@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from ..domain.types import ToolSpec
+from ..models.protocol_models import ToolSpec
 
 
 PromptMode = Literal["chat", "repl", "tui"]

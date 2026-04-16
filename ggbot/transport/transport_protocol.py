@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from .transcript_contract import TranscriptEventType
-from ..domain.domain import RuntimeEvent
+from ..models.runtime_models import RuntimeEvent
 from ..events.runtime_events import runtime_event_to_transcript_type
 
 

@@ -14,7 +14,7 @@ from ggbot.app.app_bootstrap import create_agent_bootstrap, create_app_session
 from ggbot.events.runtime_events import consume_runtime_events
 from ggbot.tools.registry import ToolRegistry
 from ggbot.state.transcript import Transcript
-from ggbot.domain.types import ChatMessage
+from ggbot.models.protocol_models import ChatMessage
 
 # ANSI color codes for log highlighting
 COLOR_RESET = "\033[0m"

@@ -14,7 +14,7 @@ from ..providers.types import ChatCompletionClient
 from ..tools.registry import ToolRegistry
 from ..transport.transcript_contract import transcript_event
 from ..state.transcript import Transcript, clear_transcript, load_model_messages, open_session
-from ..domain.types import ChatMessage
+from ..models.protocol_models import ChatMessage
 
 
 @dataclass

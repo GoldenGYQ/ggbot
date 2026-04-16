@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Set, Callable
 
 from fastapi import WebSocket
 
-from ..domain.domain import RuntimeEvent
+from ..models.runtime_models import RuntimeEvent
 from ..events.event_bus import get_global_event_bus, subscribe_to_events
 
 logger = logging.getLogger(__name__)

@@ -10,11 +10,11 @@ from ..tools.registry import ToolRegistry
 from ..transport.transcript_contract import TranscriptEventType
 from .history_repair import auto_heal_missing_tool_messages, sanitize_orphan_tool_messages
 from .model_interaction import extract_thinking_content, perform_model_turn
-from ..domain.domain import RuntimeEvent
+from ..models.runtime_models import RuntimeEvent
 from ..events.runtime_events import runtime_event
 from .tool_execution import execute_tool_call
 from ..state.transcript import Transcript
-from ..domain.types import ChatMessage
+from ..models.protocol_models import ChatMessage
 
 
 @dataclass

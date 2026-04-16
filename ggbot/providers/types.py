@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Protocol
 
-from ..domain.types import AssistantFinal, ChatMessage
+from ..models.protocol_models import AssistantFinal, ChatMessage
 
 
 class ProviderError(Exception):

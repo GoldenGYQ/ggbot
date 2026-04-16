@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..domain.domain import RuntimeEventType
+from ..models.runtime_models import RuntimeEventType
 from ..transport.transcript_contract import TranscriptEventType
 
 # Domain event type -> transcript event type.

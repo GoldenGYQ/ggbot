@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from ..domain.types import AssistantFinal, ChatMessage, StreamToolCallDelta, ToolCall, ToolFunction
+from ..models.protocol_models import AssistantFinal, ChatMessage, StreamToolCallDelta, ToolCall, ToolFunction
 from .types import ProviderError
 
 

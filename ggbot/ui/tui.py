@@ -29,8 +29,8 @@ from ..app.app_bootstrap import (
 from ..events.runtime_events import consume_runtime_events
 from ..state.session_store import SessionStore
 from ..state.transcript import Transcript
-from ..domain.types import ChatMessage
-from ..domain.domain import RuntimeEvent, RuntimeEventType, SessionState, PermissionDecision
+from ..models.protocol_models import ChatMessage
+from ..models.runtime_models import RuntimeEvent, RuntimeEventType, SessionState, PermissionDecision
 from ..events.event_bus import EventBus
 from ..events.event_handlers.base_handler import BaseEventHandler, create_base_event_handler
 from ..tools.context import ToolContext

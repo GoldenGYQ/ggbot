@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 import weakref
 
-from ..domain.domain import RuntimeEvent, RuntimeEventType
+from ..models.runtime_models import RuntimeEvent, RuntimeEventType
 
 
 @dataclass
