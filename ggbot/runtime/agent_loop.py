@@ -87,8 +87,14 @@ def run_query(
     tool_context: ToolContext | None = None,
     tool_limits: ToolLimits | None = None,
     thinking_enabled: bool = False,
+    event_callback: Callable[[RuntimeEvent], None] | None = None,
 ) -> QueryResult:
     runtime_events: list[RuntimeEvent] = []
+
+    def add_event(event: RuntimeEvent):
+        runtime_events.append(event)
+        if event_callback:
+            event_callback(event)
 
     messages.append(ChatMessage(role="user", content=user_text))
     transcript.append("model_message", messages[-1].model_dump(exclude_none=True))
@@ -112,7 +118,7 @@ def run_query(
             "current_turn": turns,
             "max_turns": max_turns,
         })
-        runtime_events.append(runtime_event("turn_update", {"current_turn": turns, "max_turns": max_turns}))
+        add_event(runtime_event("turn_update", {"current_turn": turns, "max_turns": max_turns}))
 
         # Heal any interrupted history before sending to the provider.
         sanitize_orphan_tool_messages(messages=messages)
@@ -125,8 +131,8 @@ def run_query(
             tools=tools,
             stream_printer=stream_printer,
             thinking_enabled=thinking_enabled,
+            event_callback=add_event,
         )
-        runtime_events.extend(turn_outcome.events)
 
         if turn_outcome.should_stop:
             break
@@ -141,7 +147,8 @@ def run_query(
                 tool_context=tool_context,
                 budget=budget,
             )
-            runtime_events.extend(tool_outcome.events)
+            for event in tool_outcome.events:
+                add_event(event)
 
     # Record final turn information
     # Check if we have tool calls from the last assistant message
@@ -156,7 +163,7 @@ def run_query(
         "max_turns": max_turns,
         "completed": turns < max_turns or not last_has_tool_calls,
     })
-    runtime_events.append(
+    add_event(
         runtime_event(
             "turn_complete",
             {

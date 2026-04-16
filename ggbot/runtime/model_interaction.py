@@ -81,12 +81,22 @@ def perform_model_turn(
     tools: list[dict[str, Any]],
     stream_printer: Callable[[str], None] | None,
     thinking_enabled: bool,
+    event_callback: Callable[[RuntimeEvent], None] | None = None,
 ) -> ModelTurnOutcome:
     events: list[RuntimeEvent] = []
+
+    def add_event(event: RuntimeEvent):
+        events.append(event)
+        if event_callback:
+            event_callback(event)
 
     def on_delta(text: str) -> None:
         if stream_printer:
             stream_printer(text)
+        if event_callback:
+            # assistant_delta typically doesn't go to transcript/final events
+            # so we only call the callback
+            event_callback(runtime_event("assistant_delta", {"delta": text}))
 
     try:
         assistant_final = client.stream_and_collect(messages=messages, tools=tools, on_text_delta=on_delta)
@@ -102,8 +112,8 @@ def perform_model_turn(
         messages.append(sys_msg)
         transcript.append("model_message", sys_msg.model_dump(exclude_none=True))
         transcript.append("provider_error", {"error": f"{type(e).__name__}: {e}"})
-        events.append(runtime_event("error", {"error": f"{type(e).__name__}: {e}"}))
-        events.append(runtime_event("event", sys_msg.model_dump(exclude_none=True)))
+        add_event(runtime_event("error", {"error": f"{type(e).__name__}: {e}"}))
+        add_event(runtime_event("event", sys_msg.model_dump(exclude_none=True)))
         return ModelTurnOutcome(tool_calls=[], should_stop=True, events=events)
     except Exception as e:
         tb = traceback.format_exc()
@@ -118,8 +128,8 @@ def perform_model_turn(
         messages.append(sys_msg)
         transcript.append("model_message", sys_msg.model_dump(exclude_none=True))
         transcript.append("provider_error", {"error": f"{type(e).__name__}: {e}"})
-        events.append(runtime_event("error", {"error": f"{type(e).__name__}: {e}"}))
-        events.append(runtime_event("event", sys_msg.model_dump(exclude_none=True)))
+        add_event(runtime_event("error", {"error": f"{type(e).__name__}: {e}"}))
+        add_event(runtime_event("event", sys_msg.model_dump(exclude_none=True)))
         return ModelTurnOutcome(tool_calls=[], should_stop=True, events=events)
 
     raw_content = assistant_final.content or ""
@@ -144,8 +154,8 @@ def perform_model_turn(
                     "raw_content": raw_content,
                 },
             )
-            events.append(runtime_event("event", thinking_msg.model_dump(exclude_none=True)))
-            events.append(
+            add_event(runtime_event("event", thinking_msg.model_dump(exclude_none=True)))
+            add_event(
                 runtime_event(
                     "thinking",
                     {
@@ -164,7 +174,7 @@ def perform_model_turn(
     )
     messages.append(assistant_msg)
     transcript.append("model_message", assistant_msg.model_dump(exclude_none=True))
-    events.append(runtime_event("response", assistant_msg.model_dump(exclude_none=True)))
+    add_event(runtime_event("response", assistant_msg.model_dump(exclude_none=True)))
 
     tool_calls = assistant_final.tool_calls or []
     return ModelTurnOutcome(tool_calls=tool_calls, should_stop=not bool(tool_calls), events=events)

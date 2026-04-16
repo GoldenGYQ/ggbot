@@ -34,7 +34,6 @@ STREAMABLE_EVENT_TYPES = {
     "thinking",
     "tool_call",
     "tool_result",
-    "tool_output",  # backward-compatible alias
     "turn_update",
     "turn_complete",
     "status",
@@ -440,42 +439,49 @@ class APIServer:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def _stream_send_message(self, request: MessageRequest):
-        """流式发送消息 - 简化版本"""
+        """流式发送消息 - 真正流式版本"""
         import json
         import time
 
-        try:
-            # 调用API服务，获取结果
-            result = await self.api_service.send_message(
+        queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def event_callback(event: RuntimeEvent):
+            # 将事件放入队列，注意这是在 asyncio.to_thread 的线程中调用的
+            loop.call_soon_threadsafe(queue.put_nowait, event)
+
+        # 在后台启动任务
+        send_task = asyncio.create_task(
+            self.api_service.send_message(
                 content=request.content,
                 session_id=request.session_id,
                 max_turns=request.max_turns,
                 thinking_enabled=request.thinking_enabled,
-                stream=True  # 告诉服务层我们想要流式
+                stream=True,
+                event_callback=event_callback
             )
+        )
 
-            # 检查结果是否成功
-            if not result.get("success", True):
-                yield json.dumps({
-                    "type": "error",
-                    "data": {"error": result.get("error", "Unknown error")}
-                }) + "\n"
-                return
-
-            # 流式返回事件
-            if "events" in result and result["events"]:
-                for event in result["events"]:
-                    # 发送可流式事件，兼容旧版别名类型
-                    event_type = event.get("type")
+        try:
+            # 持续从队列读取事件并 yield
+            while not send_task.done() or not queue.empty():
+                try:
+                    # 等待新事件，带超时以便检查 task 状态
+                    event = await asyncio.wait_for(queue.get(), timeout=0.2)
+                    
+                    event_type = event.type
                     if event_type in STREAMABLE_EVENT_TYPES:
                         yield json.dumps({
                             "type": "event",
                             "event_type": event_type,
-                            "data": event.get("data", {}),
-                            "timestamp": event.get("timestamp", time.time())
+                            "data": event.data,
+                            "timestamp": time.time()
                         }) + "\n"
-                        # 添加小延迟，让流式效果更明显
-                        await asyncio.sleep(0.05)
+                except asyncio.TimeoutError:
+                    continue
+
+            # 获取最终结果（此时 send_task 已完成）
+            result = await send_task
 
             # 发送完成事件
             yield json.dumps({
@@ -496,6 +502,9 @@ class APIServer:
                 "type": "error",
                 "data": {"error": str(e)}
             }) + "\n"
+        finally:
+            if not send_task.done():
+                send_task.cancel()
 
     async def _handle_list_sessions(self) -> Dict[str, Any]:
         """处理获取会话列表请求"""

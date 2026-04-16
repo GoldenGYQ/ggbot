@@ -553,7 +553,7 @@ def tui(
 ):
     """Full-screen terminal UI (Textual)."""
 
-    from example.tui.tui import run_tui
+    from example.tui_frontend.tui import run_tui
 
     run_tui(resume=resume, workspace_root=workspace_root)
 

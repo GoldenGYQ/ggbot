@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>前端修复测试</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .event { margin: 10px 0; padding: 10px; border: 1px solid #ccc; border-radius: 5px; }
+    .assistant { background: #e3f2fd; }
+    .tool { background: #fff3e0; }
+    .status { background: #f3e5f5; }
+    .thinking { background: #e8f5e8; }
+    .turn { background: #f5f5f5; }
+  </style>
+</head>
+<body>
+  <h1>前端事件处理测试</h1>
+  <div id="output"></div>
+
+  <script>
+    // 模拟API返回的事件流（NDJSON格式）
+    const mockEvents = [
+      '{"type":"event","event_type":"assistant_delta","data":{"delta":"我来帮你查询大连近三天的天气。"}}',
+      '{"type":"event","event_type":"assistant_delta","data":{"delta":"我将使用一个简单的bash命令来获取天气信息。"}}',
+      '{"type":"event","event_type":"tool_call","data":{"name":"shell_stream","arguments":{"command":"curl -s \\"wttr.in/大连?format=3\\""}}}',
+      '{"type":"event","event_type":"status","data":{"message":"Running: curl -s \\"wttr.in/大连?format=3\\"","severity":"info"}}',
+      '{"type":"event","event_type":"tool_result","data":{"name":"shell_stream","content":"大连: ⛅  +14°C","error":false}}',
+      '{"type":"event","event_type":"assistant_delta","data":{"delta":"上面的命令只显示了当前天气。"}}',
+      '{"type":"event","event_type":"assistant_delta","data":{"delta":"让我使用另一个格式来获取近三天的天气预报："}}',
+      '{"type":"event","event_type":"tool_call","data":{"name":"shell_stream","arguments":{"command":"curl -s \\"wttr.in/大连?format=%C+%t\\\\n\\""}}}',
+      '{"type":"event","event_type":"status","data":{"message":"Running: curl -s \\"wttr.in/大连?format=%C+%t\\\\n\\"","severity":"info"}}',
+      '{"type":"event","event_type":"tool_result","data":{"name":"shell_stream","content":"Partly cloudy +14°C","error":false}}',
+      '{"type":"event","event_type":"turn_update","data":{"current_turn":2,"max_turns":8}}',
+      '{"type":"event","event_type":"thinking","data":{"thinking":"用户想要近三天的天气，我需要获取更详细的信息。"}}',
+      '{"type":"event","event_type":"assistant_delta","data":{"delta":"完美！我使用了一个简单的bash命令获取了大连近三天的天气预报。"}}',
+      '{"type":"complete","data":{"session_id":"test123","final_response":"完美！我使用了一个简单的bash命令获取了大连近三天的天气预报。","success":true}}'
+    ];
+
+    const outputEl = document.getElementById('output');
+    let fullText = '';
+
+    // 模拟流式处理
+    async function simulateStream() {
+      for (const line of mockEvents) {
+        if (!line.trim()) continue;
+
+        try {
+          const data = JSON.parse(line);
+
+          if (data.type === 'event') {
+            const eventType = data.event_type;
+            const eventData = data.data || {};
+            const div = document.createElement('div');
+            div.className = 'event';
+
+            switch (eventType) {
+              case 'assistant_delta':
+                div.className += ' assistant';
+                fullText += eventData.delta || '';
+                div.innerHTML = `<strong>助手:</strong> ${eventData.delta}`;
+                break;
+
+              case 'tool_call':
+                div.className += ' tool';
+                const toolName = eventData.name || 'unknown';
+                const toolArgs = JSON.stringify(eventData.arguments || {}, null, 2);
+                div.innerHTML = `<strong>工具调用:</strong> ${toolName}<br>`;
+                if (toolArgs !== '{}') {
+                  div.innerHTML += `<small>参数: ${toolArgs}</small>`;
+                }
+                break;
+
+              case 'tool_result':
+                div.className += ' tool';
+                const resultName = eventData.name || 'unknown';
+                const resultContent = eventData.content || '';
+                const isError = eventData.error === true;
+                div.innerHTML = `<strong>工具结果 (${resultName}):</strong> ${isError ? '❌' : '✅'}<br>`;
+                div.innerHTML += `<pre>${resultContent}</pre>`;
+                break;
+
+              case 'status':
+                div.className += ' status';
+                const statusMsg = eventData.message || '';
+                const severity = eventData.severity || 'info';
+                let emoji = 'ℹ️';
+                if (severity === 'warning') emoji = '⚠️';
+                if (severity === 'error') emoji = '❌';
+                div.innerHTML = `<strong>状态:</strong> ${emoji} ${statusMsg}`;
+                break;
+
+              case 'thinking':
+                div.className += ' thinking';
+                const thinking = eventData.thinking || '';
+                div.innerHTML = `<strong>思考:</strong> 💭 ${thinking}`;
+                break;
+
+              case 'turn_update':
+                div.className += ' turn';
+                const currentTurn = eventData.current_turn || 0;
+                const maxTurns = eventData.max_turns || 8;
+                div.innerHTML = `<strong>轮次:</strong> 🔄 ${currentTurn}/${maxTurns}`;
+                break;
+            }
+
+            outputEl.appendChild(div);
+
+            // 模拟延迟
+            await new Promise(resolve => setTimeout(resolve, 300));
+          } else if (data.type === 'complete') {
+            const div = document.createElement('div');
+            div.className = 'event';
+            div.style.background = '#d4edda';
+            div.innerHTML = `<strong>完成:</strong> ✅ 会话ID: ${data.data.session_id}<br>`;
+            div.innerHTML += `<strong>最终响应:</strong> ${data.data.final_response}`;
+            outputEl.appendChild(div);
+          }
+        } catch (e) {
+          console.error('解析失败:', e, '行:', line);
+        }
+      }
+
+      // 显示完整文本
+      const finalDiv = document.createElement('div');
+      finalDiv.className = 'event';
+      finalDiv.style.background = '#f8f9fa';
+      finalDiv.innerHTML = `<h3>完整对话文本:</h3><pre>${fullText}</pre>`;
+      outputEl.appendChild(finalDiv);
+    }
+
+    simulateStream();
+  </script>
+</body>
+</html>

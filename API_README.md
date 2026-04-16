@@ -265,7 +265,6 @@ GGbot支持以下类型的事件，可通过WebSocket或REST API流式响应获�
 | `assistant_final` | 助手最终输出 | `{"content": "text"}` | ✅ |
 | `tool_call` | 工具调用 | `{"name": "tool_name", "arguments": {}}` | ✅ |
 | `tool_result` | 工具执行结果 | `{"name": "tool_name", "content": "text", "error": false}` | ✅ |
-| `tool_output` | 工具执行输出 | `{"name": "tool_name", "output": "text"}` | ✅ |
 | `thinking` | 思考过程 | `{"thinking": "text"}` | ✅ |
 | `turn_update` | 轮次更新 | `{"current_turn": 1, "max_turns": 10}` | ✅ |
 | `turn_complete` | 轮次完成 | `{"turns_used": 1, "max_turns": 8, "completed": true}` | ✅ |

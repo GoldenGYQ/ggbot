@@ -234,7 +234,8 @@ class APIService:
     async def send_message(self, content: str, session_id: Optional[str] = None,
                           max_turns: Optional[int] = None,
                           thinking_enabled: Optional[bool] = None,
-                          stream: bool = False) -> Dict[str, Any]:
+                          stream: bool = False,
+                          event_callback: Optional[Callable[[RuntimeEvent], None]] = None) -> Dict[str, Any]:
         """发送消息并获取响应"""
         # 如果指定了会话ID，切换到该会话
         if session_id and session_id != self.runtime.session_id:
@@ -257,35 +258,12 @@ class APIService:
 
         # 创建事件收集器
         # 如果是流式模式，我们需要实时发送事件
-        # 但在这个简化版本中，我们只是收集事件
         events_collector = EventsCollector()
 
-        try:
-            # 运行查询
-            # run_query 是同步实现，放到线程中执行可避免阻塞 API 事件循环，
-            # 同时兼容 async 工具（工具包装层会在无运行循环的线程内安全执行）。
-            result = await asyncio.to_thread(
-                run_query,
-                client=self.runtime.client,
-                registry=self.runtime.registry,
-                transcript=self.runtime.transcript,
-                messages=self.runtime.messages,
-                user_text=content,
-                max_turns=effective_max_turns,
-                stream_printer=lambda delta: events_collector.add_assistant_delta(delta),
-                tool_printer=lambda name, output: events_collector.add_tool_output(name, output),
-                tool_context=tool_context,
-                tool_limits=ToolLimits(
-                    max_tool_calls=self.runtime.settings.max_tool_calls,
-                    max_tool_calls_per_tool=self.runtime.settings.max_tool_calls_per_tool,
-                    max_tool_calls_same_args=self.runtime.settings.max_tool_calls_same_args,
-                ),
-                thinking_enabled=effective_thinking_enabled,
-            )
-
-            # 处理运行时事件
+        def combined_event_callback(event: RuntimeEvent):
+            # 1. 收集到 collector (为了最后的 result)
             consume_runtime_events(
-                result.events,
+                [event],
                 on_turn_update=lambda data: events_collector.add_turn_update(data),
                 on_turn_complete=lambda data: events_collector.add_turn_complete(data),
                 on_provider_error=lambda data: events_collector.add_provider_error(data),
@@ -298,6 +276,31 @@ class APIService:
                 on_session_update=lambda data: events_collector.add_session_update(data),
                 on_permission_request=lambda data: events_collector.add_permission_request(data),
                 on_permission_response=lambda data: events_collector.add_permission_response(data),
+            )
+            # 2. 如果有外部回调，调用它
+            if event_callback:
+                event_callback(event)
+
+        try:
+            # 运行查询
+            result = await asyncio.to_thread(
+                run_query,
+                client=self.runtime.client,
+                registry=self.runtime.registry,
+                transcript=self.runtime.transcript,
+                messages=self.runtime.messages,
+                user_text=content,
+                max_turns=effective_max_turns,
+                stream_printer=None, # 我们现在用 event_callback 处理 delta
+                tool_printer=None, # 我们现在用 event_callback 处理 tool output
+                tool_context=tool_context,
+                tool_limits=ToolLimits(
+                    max_tool_calls=self.runtime.settings.max_tool_calls,
+                    max_tool_calls_per_tool=self.runtime.settings.max_tool_calls_per_tool,
+                    max_tool_calls_same_args=self.runtime.settings.max_tool_calls_same_args,
+                ),
+                thinking_enabled=effective_thinking_enabled,
+                event_callback=combined_event_callback,
             )
 
             # 更新会话统计
@@ -560,7 +563,7 @@ class EventsCollector:
         self._append_event("assistant_final", {"content": content})
 
     def add_tool_output(self, name: str, output: str):
-        """添加工具输出（兼容旧版 tool_output 事件）。"""
+        """添加工具输出。"""
         self._append_event(
             "tool_result",
             {
@@ -568,13 +571,12 @@ class EventsCollector:
                 "content": output,
                 "error": False,
             },
-            aliases=["tool_output"],
             realtime=True,
         )
 
     def add_turn_update(self, data: Dict[str, Any]):
         """添加轮次更新"""
-        self._append_event("turn_update", data)
+        self._append_event("turn_update", data, realtime=True)
 
     def add_turn_complete(self, data: Dict[str, Any]):
         """添加轮次完成"""
@@ -595,11 +597,11 @@ class EventsCollector:
 
     def add_tool_result(self, data: Dict[str, Any]):
         """添加运行时工具结果事件。"""
-        self._append_event("tool_result", data)
+        self._append_event("tool_result", data, realtime=True)
 
     def add_status(self, data: Dict[str, Any]):
         """添加状态事件。"""
-        self._append_event("status", data)
+        self._append_event("status", data, realtime=True)
 
     def add_session_update(self, data: Dict[str, Any]):
         """添加会话更新事件。"""
