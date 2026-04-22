@@ -652,15 +652,17 @@ def log_view(
         except KeyboardInterrupt:
             print("\nStopped following.")
 
-
 @app.command()
 def api(
     host: str = typer.Option("127.0.0.1", "--host", "-h", help="服务器主机地址"),
     port: int = typer.Option(8000, "--port", "-p", help="服务器端口"),
     workspace_root: Optional[Path] = typer.Option(None, "--workspace-root", help="工作空间根目录"),
     resume: Optional[str] = typer.Option(None, "--resume", help="恢复指定会话"),
+    log_level: str = typer.Option("info", "--log-level", "-l", help="日志级别 (debug/info/warning/error)"),
 ):
     """启动GGbot API服务器"""
+    import logging
+    
     try:
         from .api.server import run_api_server
     except ImportError:
@@ -670,33 +672,100 @@ def api(
 
     from .app.app_bootstrap import create_agent_bootstrap, create_app_session
 
-    print(f"启动GGbot API服务器...")
+    # ========== 1. 配置日志（应用入口职责）==========
+    level_map = {
+        "debug": logging.DEBUG,
+        "info": logging.INFO,
+        "warning": logging.WARNING,
+        "error": logging.ERROR,
+    }
+    log_level_value = level_map.get(log_level.lower(), logging.INFO)
+    
+    # 配置根日志器 - 只在入口配置一次
+    logging.basicConfig(
+        level=log_level_value,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # 设置第三方库的日志级别（避免噪音）
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    
+    logger = logging.getLogger("ggbot.cli")
+    
+    # ========== 2. 显示启动信息 ==========
+    print(f"\n{'='*60}")
+    print(f"启动 GGbot API 服务器")
+    print(f"{'='*60}")
     print(f"地址: http://{host}:{port}")
     print(f"WebSocket: ws://{host}:{port}/ws")
-    print("按 Ctrl+C 停止服务器\n")
-
-    # 创建应用会话
-    app_session = create_app_session(
-        workspace_root=workspace_root,
-        resume=resume,
-        default_session_name="chat",
-        prefer_recent=True,
-    )
-
-    bootstrap = create_agent_bootstrap(
-        settings=app_session.settings,
-        session_id=app_session.session_id,
-        transcript=app_session.transcript,
-        mode="chat",
-        thinking_enabled=app_session.settings.thinking_enabled,
-    )
-
-    # 运行API服务器
+    print(f"日志级别: {log_level.upper()}")
+    print(f"工作目录: {workspace_root or '默认'}")
+    if resume:
+        print(f"恢复会话: {resume}")
+    print(f"{'='*60}\n")
+    
+    # ========== 3. 创建资源 ==========
+    app_session = None
+    bootstrap = None
+    
     try:
-        run_api_server(bootstrap.runtime, host, port)
+        # 创建应用会话
+        logger.info(f"创建应用会话: workspace={workspace_root}, resume={resume}")
+        app_session = create_app_session(
+            workspace_root=workspace_root,
+            resume=resume,
+            default_session_name="chat",
+            prefer_recent=True,
+        )
+        logger.info(f"会话已创建: session_id={app_session.session_id}")
+        
+        # 创建 agent bootstrap
+        logger.info("初始化 Agent 运行时...")
+        bootstrap = create_agent_bootstrap(
+            settings=app_session.settings,
+            session_id=app_session.session_id,
+            transcript=app_session.transcript,
+            mode="chat",
+            thinking_enabled=app_session.settings.thinking_enabled,
+        )
+        logger.info(f"Agent 运行时已初始化")
+        
+        # ========== 4. 运行API服务器（阻塞）==========
+        logger.info(f"启动 API 服务器: {host}:{port}")
+        run_api_server(
+            runtime=bootstrap.runtime,
+            host=host,
+            port=port,
+        )
+        
     except KeyboardInterrupt:
-        print("\nAPI服务器已停止")
+        print("\n\n收到中断信号，正在关闭服务器...")
+        logger.info("收到 KeyboardInterrupt，服务器正在关闭")
+        
     except Exception as e:
-        print(f"启动API服务器失败: {e}")
+        logger.error(f"启动API服务器失败: {e}", exc_info=True)
+        print(f"\n错误: 启动API服务器失败")
+        print(f"详情: {e}\n")
+        raise typer.Exit(code=1)
+        
     finally:
-        bootstrap.client.close()
+        # ========== 5. 清理资源 ==========
+        print("\n正在清理资源...")
+        
+        if bootstrap:
+            logger.info("关闭 Agent 客户端连接...")
+            try:
+                bootstrap.client.close()
+                logger.debug("Agent 客户端已关闭")
+            except Exception as e:
+                logger.error(f"关闭 Agent 客户端失败: {e}")
+        
+        # AppSession 通常不需要显式保存，transcript 会在运行时自动持久化
+        if app_session:
+            logger.debug("会话资源已释放")
+        
+        print("资源清理完成")
+        print("服务器已停止\n")
+        logger.info("API 服务器已完全关闭")

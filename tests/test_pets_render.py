@@ -1,4 +1,4 @@
-from example.tui.pets import PetBones, list_species, render_sprite
+from example.tui_frontend.pets import PetBones, list_species, render_sprite
 
 
 def test_list_species_non_empty() -> None:
