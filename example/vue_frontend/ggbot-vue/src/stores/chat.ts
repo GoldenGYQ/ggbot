@@ -8,7 +8,15 @@ export interface Message {
   content: string;
   thinking?: string;
   plan?: { completed: boolean; text: string; tool?: string }[];
-  tools?: { name: string; args: any; result?: any; status: 'calling' | 'done' | 'error'; requires_permission?: boolean }[];
+  tools?: {
+    name: string;
+    args: any;
+    result?: any;
+    status: 'calling' | 'done' | 'error';
+    requires_permission?: boolean;
+    request_id?: string;
+    session_id?: string;
+  }[];
   status?: 'pending' | 'done' | 'error';
 }
 
@@ -22,7 +30,8 @@ export const chatStore = reactive({
     const data = await api.getSessions();
     this.sessions = data.sessions || [];
     if (this.sessions.length > 0 && !this.currentSessionId) {
-      this.currentSessionId = data.current_session_id || this.sessions[0].id;
+      const first = this.sessions[0];
+      this.currentSessionId = data.current_session_id || (first ? first.id : null);
     }
   },
 
@@ -57,7 +66,10 @@ export const chatStore = reactive({
       this.sessions = this.sessions.filter(s => s.id !== sessionId);
       if (this.currentSessionId === sessionId) {
         if (this.sessions.length > 0) {
-          this.selectSession(this.sessions[0].id);
+          const first = this.sessions[0];
+          if (first) {
+            this.selectSession(first.id);
+          }
         } else {
           this.currentSessionId = null;
           this.messages = [];
@@ -75,7 +87,9 @@ export const chatStore = reactive({
   updateLastMessage(updates: Partial<Message>) {
     if (this.messages.length > 0) {
       const last = this.messages[this.messages.length - 1];
-      Object.assign(last, updates);
+      if (last) {
+        Object.assign(last, updates);
+      }
     }
   }
 });

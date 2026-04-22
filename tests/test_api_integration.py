@@ -222,6 +222,45 @@ class TestAPIServer:
         assert "access-control-allow-origin" in response.headers
         assert response.headers["access-control-allow-origin"] == "*"
 
+    def test_schedule_event_delivery_uses_loop_threadsafe(self, api_server):
+        """测试事件转发通过 loop.call_soon_threadsafe 调度"""
+
+        class FakeLoop:
+            def __init__(self):
+                self.called = False
+                self.callback = None
+
+            def call_soon_threadsafe(self, cb):
+                self.called = True
+                self.callback = cb
+
+        fake_loop = FakeLoop()
+
+        event = MagicMock()
+        event.type = "status"
+        event.data = {"message": "ok"}
+        event.source = "test"
+
+        api_server._schedule_event_delivery(fake_loop, "cid", event)
+
+        assert fake_loop.called is True
+        assert callable(fake_loop.callback)
+
+    def test_schedule_event_delivery_ignores_closed_loop(self, api_server):
+        """测试事件循环关闭时不抛异常"""
+
+        class ClosedLoop:
+            def call_soon_threadsafe(self, cb):
+                raise RuntimeError("loop closed")
+
+        event = MagicMock()
+        event.type = "status"
+        event.data = {"message": "ok"}
+        event.source = "test"
+
+        # Should not raise.
+        api_server._schedule_event_delivery(ClosedLoop(), "cid", event)
+
 
 class TestWebSocket:
     """WebSocket测试"""

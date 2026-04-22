@@ -1,52 +1,73 @@
 {
   "2a76fd74-dc57-4cbd-9a4b-4f2692143ca7": {
-    "created_ms": 1776349663348,
+    "created_ms": 0,
     "title": "Untitled",
     "title_gen_turn": 0,
-    "updated_ms": 1776349663348,
+    "updated_ms": 0,
     "user_turns": 0
   },
   "2e2686e5-5860-45fd-a60c-387822100cd0": {
-    "created_ms": 1776333430482,
-    "title": "系统信息报告",
-    "title_gen_turn": 1,
-    "updated_ms": 1776348221330,
-    "user_turns": 3
+    "created_ms": 0,
+    "title": "Untitled",
+    "title_gen_turn": 0,
+    "updated_ms": 0,
+    "user_turns": 0
   },
   "3e8f5610-c385-4f7d-9a32-375d2e9ed721": {
-    "created_ms": 1776325917081,
-    "title": "测试会话 2",
+    "created_ms": 0,
+    "title": "Untitled",
     "title_gen_turn": 0,
-    "updated_ms": 1776325934525,
-    "user_turns": 1
+    "updated_ms": 0,
+    "user_turns": 0
   },
   "4dcc838e-7dd1-4516-8a01-5062fff9b87c": {
-    "created_ms": 1776349468402,
-    "title": "北京天气穿搭建议",
-    "title_gen_turn": 1,
-    "updated_ms": 1776349485666,
-    "user_turns": 1
+    "created_ms": 0,
+    "title": "Untitled",
+    "title_gen_turn": 0,
+    "updated_ms": 0,
+    "user_turns": 0
   },
   "5d210c07-81b7-40c0-82c2-4223af749c15": {
-    "created_ms": 1776330868136,
-    "title": "新会话",
+    "created_ms": 0,
+    "title": "Untitled",
     "title_gen_turn": 0,
-    "updated_ms": 1776349371675,
-    "user_turns": 4
+    "updated_ms": 0,
+    "user_turns": 0
   },
   "819b5f22-019d-44c1-b3fe-11ce686bf0b0": {
-    "created_ms": 1776325917093,
-    "title": "测试会话 3",
+    "created_ms": 0,
+    "title": "Untitled",
     "title_gen_turn": 0,
-    "updated_ms": 1776328735014,
-    "user_turns": 4
+    "updated_ms": 0,
+    "user_turns": 0
+  },
+  "b574b0f0-f6db-480a-9db3-6588963d4787": {
+    "created_ms": 1776845615477,
+    "title": "Shell网络与日志分析工具",
+    "title_gen_turn": 1,
+    "updated_ms": 1776846268560,
+    "user_turns": 3
   },
   "cc1ec52b-ef85-4c95-babd-500d274f129a": {
-    "created_ms": 1776325917066,
-    "title": "测试会话 1",
+    "created_ms": 0,
+    "title": "Untitled",
     "title_gen_turn": 0,
-    "updated_ms": 1776325926622,
-    "user_turns": 1
+    "updated_ms": 0,
+    "user_turns": 0
+  },
+  "chat": {
+    "created_ms": 0,
+    "title": "Untitled",
+    "title_gen_turn": 0,
+    "updated_ms": 0,
+    "user_turns": 0
+  },
+  "d247362b-a31f-41f6-b897-ed95169fd712": {
+    "created_ms": 0,
+    "title": "Untitled",
+    "title_gen_turn": 0,
+    "updated_ms": 0,
+    "user_turns": 0
   },
   "d2fbed7a-72f3-43f0-a3d9-fbd2bc5309fd": {
     "created_ms": 1776332266255,
@@ -63,17 +84,24 @@
     "user_turns": 0
   },
   "d9816c0c-d84f-4a5e-b896-89e6765ddc31": {
-    "created_ms": 1776328893270,
-    "title": "新会话",
+    "created_ms": 0,
+    "title": "Untitled",
     "title_gen_turn": 0,
-    "updated_ms": 1776329598479,
-    "user_turns": 4
+    "updated_ms": 0,
+    "user_turns": 0
+  },
+  "repl": {
+    "created_ms": 0,
+    "title": "Untitled",
+    "title_gen_turn": 0,
+    "updated_ms": 0,
+    "user_turns": 0
   },
   "tui": {
     "created_ms": 0,
-    "title": "English Chat",
-    "title_gen_turn": 1,
-    "updated_ms": 1776333360640,
-    "user_turns": 7
+    "title": "Untitled",
+    "title_gen_turn": 0,
+    "updated_ms": 0,
+    "user_turns": 0
   }
 }

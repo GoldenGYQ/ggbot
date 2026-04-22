@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, nextTick, watch } from 'vue';
+import { onMounted, onUnmounted, ref, nextTick, watch } from 'vue';
 import { chatStore } from '../stores/chat';
 import { api } from '../api/client';
 import MessageItem from '../components/MessageItem.vue';
@@ -17,12 +17,31 @@ const scrollToBottom = async () => {
 onMounted(async () => {
   await chatStore.fetchSessions();
   api.connectWebSocket();
-  api.onEvent((event) => {
+  const unsub = api.onEvent((event) => {
     if (event.type === 'event') {
       handleGGEvent(event);
+      return;
+    }
+    if (event.type === 'response') {
+      handleWSResponse(event);
+      return;
+    }
+    if (event.type === 'error') {
+      handleWSError(event);
     }
   });
+  unsubscribeWS = unsub;
 });
+
+onUnmounted(() => {
+  if (unsubscribeWS) {
+    unsubscribeWS();
+    unsubscribeWS = null;
+  }
+});
+
+let unsubscribeWS: null | (() => void) = null;
+const pendingSendCommandIds = new Set<string>();
 
 const handleGGEvent = (event: any) => {
   const { event_type, data } = event;
@@ -78,18 +97,82 @@ const handleGGEvent = (event: any) => {
     const lastMsg = chatStore.messages[chatStore.messages.length - 1];
     if (lastMsg && lastMsg.role === 'assistant') {
       if (!lastMsg.tools) lastMsg.tools = [];
-      lastMsg.tools.push({
-        name: data.tool_name,
-        args: data.arguments,
-        status: 'calling',
-        requires_permission: true
-      });
+      const existing = lastMsg.tools.find(t =>
+        t.name === data.tool_name &&
+        t.status === 'calling' &&
+        JSON.stringify(t.args || {}) === JSON.stringify(data.arguments || {})
+      );
+      if (existing) {
+        existing.requires_permission = true;
+        existing.request_id = data.request_id;
+        existing.session_id = data.session_id;
+      } else {
+        lastMsg.tools.push({
+          name: data.tool_name,
+          args: data.arguments,
+          status: 'calling',
+          requires_permission: true,
+          request_id: data.request_id,
+          session_id: data.session_id
+        });
+      }
+    }
+  } else if (event_type === 'permission_response') {
+    const requestId = data.request_id;
+    for (let i = chatStore.messages.length - 1; i >= 0; i--) {
+      const msg = chatStore.messages[i];
+      if (!msg) continue;
+      if (!msg.tools || msg.tools.length === 0) continue;
+      const tool = msg.tools.find(t => t.request_id && t.request_id === requestId);
+      if (!tool) continue;
+      tool.requires_permission = false;
+      if (data.allowed) {
+        tool.status = 'calling';
+        tool.result = tool.result || '已批准，等待执行结果...';
+      } else {
+        tool.status = 'error';
+        tool.result = data.reason || '已拒绝执行';
+      }
+      break;
     }
   } else if (event_type === 'session_update') {
     chatStore.fetchSessions();
   }
   
   scrollToBottom();
+};
+
+const markLastAssistantAsError = (message: string) => {
+  const lastMsg = chatStore.messages[chatStore.messages.length - 1];
+  if (lastMsg && lastMsg.role === 'assistant') {
+    lastMsg.status = 'error';
+    lastMsg.content = message;
+  } else {
+    chatStore.addMessage({
+      id: Date.now().toString(),
+      role: 'assistant',
+      content: message,
+      status: 'error'
+    });
+  }
+  chatStore.isTyping = false;
+  scrollToBottom();
+};
+
+const handleWSError = (event: any) => {
+  markLastAssistantAsError(`❌ 错误: ${event.message || 'WebSocket错误'}`);
+};
+
+const handleWSResponse = (event: any) => {
+  if (event.command !== 'send_message') return;
+  const commandId = event.id;
+  if (!commandId || !pendingSendCommandIds.has(commandId)) return;
+  pendingSendCommandIds.delete(commandId);
+
+  const payload = event.payload || {};
+  if (payload.success === false) {
+    markLastAssistantAsError(`❌ 错误: ${payload.error || '消息发送失败'}`);
+  }
 };
 
 const sendMessage = async () => {
@@ -115,42 +198,11 @@ const sendMessage = async () => {
   scrollToBottom();
 
   try {
-    const stream = await api.sendMessage(content, chatStore.currentSessionId || undefined);
-    if (stream instanceof ReadableStream) {
-      const reader = stream.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const event = JSON.parse(line);
-            if (event.type === 'event') {
-              handleGGEvent(event);
-            } else if (event.type === 'complete') {
-              chatStore.isTyping = false;
-              if (event.data.session_id && !chatStore.currentSessionId) {
-                chatStore.currentSessionId = event.data.session_id;
-                chatStore.fetchSessions();
-              }
-            }
-          } catch (e) {
-            console.error('Error parsing stream line:', e, line);
-          }
-        }
-      }
-    }
+    const commandId = await api.sendMessageWS(content, chatStore.currentSessionId || undefined);
+    pendingSendCommandIds.add(commandId);
   } catch (err) {
     console.error('Send message failed:', err);
-    chatStore.isTyping = false;
+    markLastAssistantAsError(`❌ 错误: ${String(err)}`);
   }
 };
 

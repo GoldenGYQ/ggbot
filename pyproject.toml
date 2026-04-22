@@ -24,8 +24,8 @@ dev = [
 ]
 
 [project.scripts]
-ggbot = "ggbot.cli:app"
-bot = "ggbot.cli:app"
+ggbot = "ggbot.command:app"
+bot = "ggbot.command:app"
 
 [tool.pytest.ini_options]
 addopts = "-q"

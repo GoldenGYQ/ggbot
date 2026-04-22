@@ -7,8 +7,6 @@ const props = defineProps<{
 
 const progress = computed(() => {
   if (!props.plan.length) return 0;
-  const completedCount = props.plan.filter(item => item.completed).count; // wait, filter returns an array
-  // Correcting: props.plan.filter(item => item.completed).length
   const completed = props.plan.filter(item => item.completed).length;
   return Math.round((completed / props.plan.length) * 100);
 });

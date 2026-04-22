@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { StreamEvent, Session } from '../types/api';
+import type { Session } from '../types/api';
 
 const BASE_URL = 'http://127.0.0.1:8000';
 const WS_URL = 'ws://127.0.0.1:8000/ws';
@@ -8,6 +8,7 @@ export class GGbotAPI {
   private static instance: GGbotAPI;
   private ws: WebSocket | null = null;
   private eventHandlers: ((event: any) => void)[] = [];
+  private wsConnectWaiters: { resolve: () => void; reject: (error: Error) => void }[] = [];
 
   private constructor() {}
 
@@ -61,14 +62,36 @@ export class GGbotAPI {
     if (this.ws) return;
 
     this.ws = new WebSocket(WS_URL);
+    this.ws.onopen = () => {
+      const waiters = [...this.wsConnectWaiters];
+      this.wsConnectWaiters = [];
+      waiters.forEach((waiter) => waiter.resolve());
+    };
+
     this.ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      this.eventHandlers.forEach(handler => handler(data));
+      try {
+        const data = JSON.parse(event.data);
+        this.eventHandlers.forEach((handler) => handler(data));
+      } catch (error) {
+        this.eventHandlers.forEach((handler) => handler({
+          type: 'error',
+          message: `WebSocket消息解析失败: ${String(error)}`
+        }));
+      }
     };
 
     this.ws.onclose = () => {
+      const waiters = [...this.wsConnectWaiters];
+      this.wsConnectWaiters = [];
+      waiters.forEach((waiter) => waiter.reject(new Error('WebSocket closed before opening')));
       this.ws = null;
       setTimeout(() => this.connectWebSocket(), 3000); // Reconnect
+    };
+
+    this.ws.onerror = () => {
+      const waiters = [...this.wsConnectWaiters];
+      this.wsConnectWaiters = [];
+      waiters.forEach((waiter) => waiter.reject(new Error('WebSocket connection error')));
     };
   }
 
@@ -79,17 +102,63 @@ export class GGbotAPI {
     };
   }
 
-  sendWSCommand(command: string, payload: any) {
+  private async waitForWebSocketOpen(timeoutMs: number = 5000): Promise<void> {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+    if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
+      this.connectWebSocket();
+    }
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.wsConnectWaiters = this.wsConnectWaiters.filter((waiter) => waiter.resolve !== wrappedResolve);
+        reject(new Error('WebSocket connection timeout'));
+      }, timeoutMs);
+
+      const wrappedResolve = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const wrappedReject = (error: Error) => {
+        clearTimeout(timer);
+        reject(error);
+      };
+
+      this.wsConnectWaiters.push({ resolve: wrappedResolve, reject: wrappedReject });
+    });
+  }
+
+  async sendWSCommand(command: string, payload: any): Promise<string> {
+    await this.waitForWebSocketOpen();
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
+    const commandId = Math.random().toString(36).substring(7);
     this.ws.send(JSON.stringify({
       type: 'command',
-      id: Math.random().toString(36).substring(7),
+      id: commandId,
       command,
       payload,
       timestamp: Date.now() / 1000
     }));
+    return commandId;
+  }
+
+  async sendMessageWS(content: string, sessionId?: string): Promise<string> {
+    return this.sendWSCommand('send_message', {
+      content,
+      session_id: sessionId
+    });
+  }
+
+  async sendPermissionResponse(requestId: string, allowed: boolean, sessionId?: string, reason?: string): Promise<string> {
+    return this.sendWSCommand('permission_response', {
+      request_id: requestId,
+      allowed,
+      session_id: sessionId,
+      reason: reason || ''
+    });
   }
 }
 

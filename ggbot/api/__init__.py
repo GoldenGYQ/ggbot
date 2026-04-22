@@ -7,8 +7,6 @@ __all__ = [
     "create_api_server",
     "run_api_server",
     "APIServer",
-    "WebSocketManager",
 ]
 
 from .server import APIServer, create_api_server, run_api_server
-from .websocket import WebSocketManager

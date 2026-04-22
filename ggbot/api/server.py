@@ -92,6 +92,14 @@ class ConfigUpdateRequest(BaseModel):
     shell_confirm: Optional[bool] = None
 
 
+class PermissionResponseRequest(BaseModel):
+    """权限响应请求"""
+    request_id: str
+    allowed: bool
+    reason: Optional[str] = None
+    session_id: Optional[str] = None
+
+
 class WebSocketMessage(BaseModel):
     """WebSocket消息"""
     type: str
@@ -324,15 +332,18 @@ class APIServer:
         async def get_recent_events(limit: int = 100):
             return await self._handle_get_recent_events(limit)
 
+        @self.app.post("/api/v1/permissions/respond")
+        async def respond_permission(request: PermissionResponseRequest):
+            return await self._handle_permission_response(request)
+
     async def _handle_websocket(self, websocket: WebSocket, connection_id: str):
         """处理WebSocket连接"""
         await self.connection_manager.connect(websocket, connection_id)
+        event_loop = asyncio.get_running_loop()
 
         try:
             def event_handler(event: RuntimeEvent):
-                asyncio.create_task(
-                    self._send_event_to_connection(connection_id, event)
-                )
+                self._schedule_event_delivery(event_loop, connection_id, event)
 
             subscription = subscribe_to_events(event_handler)
             self.connection_manager.connection_subscriptions[connection_id] = subscription
@@ -351,6 +362,16 @@ class APIServer:
             logger.error(f"WebSocket连接处理失败", exc_info=True)
         finally:
             self.connection_manager.disconnect(connection_id)
+
+    def _schedule_event_delivery(self, loop: asyncio.AbstractEventLoop, connection_id: str, event: RuntimeEvent) -> None:
+        """Schedule websocket delivery on the websocket loop from any thread."""
+        try:
+            loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(self._send_event_to_connection(connection_id, event))
+            )
+        except RuntimeError:
+            # Loop may already be closed during shutdown; dropping late events is acceptable.
+            self.logger.debug("WebSocket event dropped because event loop is not available")
 
     async def _send_event_to_connection(self, connection_id: str, event: RuntimeEvent):
         """发送事件到指定连接"""
@@ -376,7 +397,7 @@ class APIServer:
                 if not isinstance(command, str):
                     raise ValueError("命令必须是字符串")
                 
-                response = await self._handle_command(command, payload)
+                response = await self._handle_command(command, payload, connection_id=connection_id)
 
                 await self.connection_manager.send_message(connection_id, {
                     "type": "response",
@@ -402,7 +423,13 @@ class APIServer:
         })
 
     @log_exceptions(logger)
-    async def _handle_command(self, command: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_command(
+        self,
+        command: str,
+        payload: Dict[str, Any],
+        *,
+        connection_id: str | None = None,
+    ) -> Dict[str, Any]:
         """处理命令"""
         if command == "send_message":
             content = payload.get("content", "")
@@ -410,7 +437,11 @@ class APIServer:
             max_turns = payload.get("max_turns")
             thinking_enabled = payload.get("thinking_enabled")
             return await self.api_service.send_message(
-                content, session_id, max_turns, thinking_enabled
+                content,
+                session_id,
+                max_turns,
+                thinking_enabled,
+                connection_id=connection_id,
             )
         elif command == "list_sessions":
             return await self.api_service.list_sessions()
@@ -441,6 +472,24 @@ class APIServer:
         elif command == "get_recent_events":
             limit = payload.get("limit", 100)
             return await self.api_service.get_recent_events(limit)
+        elif command == "permission_response":
+            request_id = payload.get("request_id")
+            allowed = payload.get("allowed")
+            reason = payload.get("reason", "")
+            session_id = payload.get("session_id")
+            if not request_id:
+                raise ValueError("缺少request_id参数")
+            if not isinstance(allowed, bool):
+                raise ValueError("allowed必须是布尔值")
+            if not session_id:
+                raise ValueError("缺少session_id参数")
+            return await self.api_service.respond_permission(
+                request_id=request_id,
+                allowed=allowed,
+                reason=str(reason or ""),
+                actor_connection_id=connection_id,
+                actor_session_id=str(session_id),
+            )
         else:
             raise ValueError(f"未知命令: {command}")
 
@@ -622,6 +671,22 @@ class APIServer:
     async def _handle_get_recent_events(self, limit: int) -> Dict[str, Any]:
         """处理获取最近事件请求"""
         return await self.api_service.get_recent_events(limit)
+
+    @log_exceptions(logger)
+    async def _handle_permission_response(self, request: PermissionResponseRequest) -> Dict[str, Any]:
+        """处理权限响应请求"""
+        if not request.session_id:
+            raise HTTPException(status_code=400, detail="缺少session_id参数")
+        result = await self.api_service.respond_permission(
+            request_id=request.request_id,
+            allowed=request.allowed,
+            reason=request.reason or "",
+            actor_connection_id=None,
+            actor_session_id=request.session_id,
+        )
+        if result.get("success") is not True:
+            raise HTTPException(status_code=404, detail=result.get("message", "Permission request not found"))
+        return result
 
     def run(self):
         """运行API服务器"""

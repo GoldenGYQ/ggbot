@@ -16,6 +16,7 @@ from ..app.app_bootstrap import (
     switch_runtime_session,
 )
 from ..events.runtime_events import consume_runtime_events
+from ..api.permission_manager import get_permission_manager
 from ..state.sessions import default_sessions
 from ..state.session_store import SessionStore
 from ..state.transcript import Transcript
@@ -137,10 +138,18 @@ class APIService:
 
     async def get_session(self, session_id: str) -> Dict[str, Any]:
         """获取会话详情"""
+        # 如果元数据不存在但会话是默认类型，自动创建
         meta = self.session_store.metas.get(session_id)
 
         if not meta:
-            raise ValueError(f"会话不存在: {session_id}")
+            defaults = default_sessions(
+                workspace_root=self.runtime.settings.workspace_root,
+                transcript_dir=self.runtime.settings.resolved_transcript_dir()
+            )
+            if session_id in (defaults.chat, defaults.repl, defaults.tui, "api"):
+                meta = self.session_store.ensure_saved(session_id)
+            else:
+                raise ValueError(f"会话不存在: {session_id}")
 
         # 获取会话消息
         messages = []
@@ -235,7 +244,8 @@ class APIService:
                           max_turns: Optional[int] = None,
                           thinking_enabled: Optional[bool] = None,
                           stream: bool = False,
-                          event_callback: Optional[Callable[[RuntimeEvent], None]] = None) -> Dict[str, Any]:
+                          event_callback: Optional[Callable[[RuntimeEvent], None]] = None,
+                          connection_id: Optional[str] = None) -> Dict[str, Any]:
         """发送消息并获取响应"""
         # 如果指定了会话ID，切换到该会话
         if session_id and session_id != self.runtime.session_id:
@@ -254,6 +264,12 @@ class APIService:
             session_id=self.runtime.session_id,
             transcript=self.runtime.transcript,
             workspace_root=self.runtime.settings.workspace_root,
+        )
+        permission_manager = get_permission_manager()
+        permission_ctx_token = permission_manager.set_request_context(
+            connection_id=connection_id,
+            session_id=self.runtime.session_id,
+            user_id=None,
         )
 
         # 创建事件收集器
@@ -333,6 +349,8 @@ class APIService:
         except Exception as e:
             logger.error(f"发送消息失败: {e}")
             raise
+        finally:
+            permission_manager.reset_request_context(permission_ctx_token)
 
     async def _generate_title(self, seed: str) -> Optional[str]:
         """生成会话标题"""
@@ -454,6 +472,31 @@ class APIService:
                 "error": str(e),
                 "session_id": self.runtime.session_id
             }
+
+    async def respond_permission(
+        self,
+        request_id: str,
+        allowed: bool,
+        reason: str = "",
+        actor_connection_id: str | None = None,
+        actor_session_id: str | None = None,
+    ) -> Dict[str, Any]:
+        """Handle frontend permission decision for pending tool requests."""
+        accepted = get_permission_manager().resolve(
+            request_id=request_id,
+            allowed=allowed,
+            reason=reason,
+            actor_connection_id=actor_connection_id,
+            actor_session_id=actor_session_id,
+            actor_user_id=None,
+        )
+        return {
+            "success": accepted,
+            "request_id": request_id,
+            "allowed": allowed,
+            "reason": reason,
+            "message": "Permission decision accepted" if accepted else "Permission request not found or already resolved",
+        }
 
     # ==================== 配置管理 ====================
 
