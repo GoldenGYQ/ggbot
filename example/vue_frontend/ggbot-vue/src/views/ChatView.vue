@@ -43,27 +43,88 @@ onUnmounted(() => {
 let unsubscribeWS: null | (() => void) = null;
 const pendingSendCommandIds = new Set<string>();
 
+const createAssistantMessage = () => {
+  chatStore.addMessage({
+    id: (Date.now() + Math.random()).toString(),
+    role: 'assistant',
+    content: '',
+    status: 'pending'
+  });
+};
+
+const getLastAssistant = () => {
+  const lastMsg = chatStore.messages[chatStore.messages.length - 1];
+  return lastMsg && lastMsg.role === 'assistant' ? lastMsg : null;
+};
+
 const handleGGEvent = (event: any) => {
   const { event_type, data } = event;
   
   if (event_type === 'assistant_delta') {
-    const lastMsg = chatStore.messages[chatStore.messages.length - 1];
-    if (lastMsg && lastMsg.role === 'assistant') {
+    let lastMsg = getLastAssistant();
+    if (!lastMsg) {
+      createAssistantMessage();
+      lastMsg = getLastAssistant();
+    }
+    if (lastMsg) {
       lastMsg.content += data.delta || '';
     }
+  } else if (event_type === 'assistant_final') {
+    let lastMsg = getLastAssistant();
+    if (!lastMsg) {
+      createAssistantMessage();
+      lastMsg = getLastAssistant();
+    }
+    if (lastMsg) {
+      const finalText = data.content || '';
+      // Some providers only emit assistant_final without assistant_delta.
+      // Keep existing streamed text if present; otherwise use final content directly.
+      if (!lastMsg.content || lastMsg.content.trim().length === 0) {
+        lastMsg.content = finalText;
+      } else if (finalText && !lastMsg.content.includes(finalText)) {
+        lastMsg.content = finalText;
+      }
+      lastMsg.status = 'done';
+    }
   } else if (event_type === 'thinking') {
-    const lastMsg = chatStore.messages[chatStore.messages.length - 1];
-    if (lastMsg && lastMsg.role === 'assistant') {
+    let lastMsg = getLastAssistant();
+    if (!lastMsg) {
+      createAssistantMessage();
+      lastMsg = getLastAssistant();
+    }
+    if (lastMsg) {
       lastMsg.thinking = (lastMsg.thinking || '') + (data.thinking || '');
     }
   } else if (event_type === 'plan_update') {
-    const lastMsg = chatStore.messages[chatStore.messages.length - 1];
-    if (lastMsg && lastMsg.role === 'assistant') {
+    let lastMsg = getLastAssistant();
+    if (!lastMsg) {
+      createAssistantMessage();
+      lastMsg = getLastAssistant();
+    }
+    if (lastMsg) {
       lastMsg.plan = data.plan;
     }
   } else if (event_type === 'tool_call') {
-    const lastMsg = chatStore.messages[chatStore.messages.length - 1];
-    if (lastMsg && lastMsg.role === 'assistant') {
+    let lastMsg = getLastAssistant();
+    if (!lastMsg) {
+      createAssistantMessage();
+      lastMsg = getLastAssistant();
+    }
+    if (
+      lastMsg &&
+      (
+        (lastMsg.content && lastMsg.content.trim().length > 0) ||
+        (lastMsg.thinking && lastMsg.thinking.trim().length > 0) ||
+        (lastMsg.plan && lastMsg.plan.length > 0)
+      ) &&
+      (!lastMsg.tools || lastMsg.tools.length === 0)
+    ) {
+      // Entering tool stage: split into a new assistant bubble to avoid
+      // pre-tool text and tool timeline accumulating in one giant bubble.
+      createAssistantMessage();
+      lastMsg = getLastAssistant();
+    }
+    if (lastMsg) {
       if (!lastMsg.tools) lastMsg.tools = [];
       lastMsg.tools.push({
         name: data.name,
@@ -166,13 +227,30 @@ const handleWSError = (event: any) => {
 const handleWSResponse = (event: any) => {
   if (event.command !== 'send_message') return;
   const commandId = event.id;
-  if (!commandId || !pendingSendCommandIds.has(commandId)) return;
-  pendingSendCommandIds.delete(commandId);
+  // Do not hard-fail on command id mismatch; ws message order/race may cause
+  // response to arrive before local pending set update.
+  if (commandId && pendingSendCommandIds.has(commandId)) {
+    pendingSendCommandIds.delete(commandId);
+  }
 
   const payload = event.payload || {};
   if (payload.success === false) {
     markLastAssistantAsError(`❌ 错误: ${payload.error || '消息发送失败'}`);
+    return;
   }
+
+  // Fallback: when realtime deltas are absent, use final_response from command response.
+  const finalResponse = payload.final_response;
+  if (typeof finalResponse === 'string' && finalResponse.length > 0) {
+    const lastMsg = chatStore.messages[chatStore.messages.length - 1];
+    if (lastMsg && lastMsg.role === 'assistant') {
+      if (!lastMsg.content || lastMsg.content.trim().length === 0) {
+        lastMsg.content = finalResponse;
+      }
+      lastMsg.status = 'done';
+    }
+  }
+  chatStore.isTyping = false;
 };
 
 const sendMessage = async () => {
@@ -188,12 +266,7 @@ const sendMessage = async () => {
   });
   
   chatStore.isTyping = true;
-  chatStore.addMessage({
-    id: (Date.now() + 1).toString(),
-    role: 'assistant',
-    content: '',
-    status: 'pending'
-  });
+  createAssistantMessage();
   
   scrollToBottom();
 
@@ -270,11 +343,13 @@ watch(() => chatStore.messages.length, scrollToBottom);
             <h2>你好，我是 GGbot</h2>
             <p>我可以帮你写代码、查资料、或者只是聊聊天。你想聊点什么？</p>
           </div>
-          <MessageItem 
-            v-for="msg in chatStore.messages" 
-            :key="msg.id" 
-            :message="msg" 
-          />
+          <div
+            v-for="msg in chatStore.messages"
+            :key="msg.id"
+            class="message-row"
+          >
+            <MessageItem :message="msg" />
+          </div>
         </div>
       </div>
       
@@ -453,6 +528,15 @@ watch(() => chatStore.messages.length, scrollToBottom);
   max-width: 760px;
   margin: 0 auto;
   padding: 0 40px;
+}
+
+.message-row {
+  border-bottom: 1px solid #ececf1;
+  padding: 14px 0;
+}
+
+.message-row:first-of-type {
+  border-top: 1px solid #ececf1;
 }
 
 .welcome-screen {

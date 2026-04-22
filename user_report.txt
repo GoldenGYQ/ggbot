@@ -1,0 +1,11 @@
+﻿=== 用户数据处理报告 ===
+生成时间: 2026-04-22 21:27:08
+用户总数: 5
+邮箱域名数量: 5
+公司数量: 5
+`n用户列表（按姓名排序）:
+  - Chelsey Dietrich (Lucio_Hettinger@annie.ca), Keebler LLC
+  - Clementine Bauch (Nathan@yesenia.net), Romaguera-Jacobson
+  - Ervin Howell (Shanna@melissa.tv), Deckow-Crist
+  - Leanne Graham (Sincere@april.biz), Romaguera-Crona
+  - Patricia Lebsack (Julianne.OConner@kory.org), Robel-Corkery

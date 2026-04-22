@@ -29,7 +29,11 @@ const permissionSubmitting = reactive<Record<string, boolean>>({});
 
 const formattedContent = computed(() => {
   if (!props.message.content) return '';
-  return md.render(props.message.content);
+  const cleaned = props.message.content
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+    .replace(/<plan>[\s\S]*?<\/plan>/gi, '')
+    .trim();
+  return md.render(cleaned);
 });
 
 const decidePermission = async (tool: any, allowed: boolean) => {
@@ -76,13 +80,6 @@ const decidePermission = async (tool: any, allowed: boolean) => {
         <PlanProgress :plan="message.plan" />
       </div>
       
-      <div class="bubble">
-        <div v-if="message.content" class="text" v-html="formattedContent"></div>
-        <div v-else-if="message.status === 'pending'" class="typing-indicator">
-          <span></span><span></span><span></span>
-        </div>
-      </div>
-      
       <div v-if="message.tools && message.tools.length > 0" class="tools-wrapper">
         <div v-for="(tool, idx) in message.tools" :key="idx" class="tool-item">
           <div class="tool-header">
@@ -116,6 +113,13 @@ const decidePermission = async (tool: any, allowed: boolean) => {
           </div>
         </div>
       </div>
+
+      <div class="bubble">
+        <div v-if="message.content" class="text" v-html="formattedContent"></div>
+        <div v-else-if="message.status === 'pending'" class="typing-indicator">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
     </div>
     
     <div v-if="isUser" class="avatar">👤</div>
@@ -125,7 +129,7 @@ const decidePermission = async (tool: any, allowed: boolean) => {
 <style scoped>
 .message-container {
   display: flex;
-  margin-bottom: 24px;
+  margin-bottom: 0;
   max-width: 85%;
   gap: 12px;
 }
@@ -161,24 +165,24 @@ const decidePermission = async (tool: any, allowed: boolean) => {
 }
 
 .bubble {
-  padding: 12px 16px;
-  border-radius: 16px;
+  padding: 2px 0;
+  border-radius: 0;
   font-size: 15px;
   line-height: 1.6;
-  position: relative;
   word-break: break-word;
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .user-msg .bubble {
-  background: #3478f6;
-  color: white;
-  border-top-right-radius: 4px;
+  background: transparent;
+  color: #1a1a1a;
 }
 
 .assistant-msg .bubble {
-  background: #f4f4f7;
+  background: transparent;
   color: #1a1a1a;
-  border-top-left-radius: 4px;
 }
 
 :deep(.bubble p) {

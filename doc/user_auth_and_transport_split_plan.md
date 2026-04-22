@@ -13,9 +13,22 @@
 ## Current Risks (Why this change is needed)
 
 1. Event stream is globally broadcast from runtime events; no user/session filtering.
-2. Permission responses are keyed by request_id only and can be answered by other connections.
-3. Runtime/session switching currently mutates a shared runtime object.
-4. Frontend currently consumes both HTTP stream and WS events for the same message lifecycle.
+2. Runtime/session switching currently mutates a shared runtime object.
+3. HTTP and WS are both available for command plane, but no authentication boundary exists yet.
+4. Frontend migration to WS-only realtime lifecycle is incomplete.
+
+## Current Implementation Status (2026-04)
+
+- Permission ownership check: **partially done**
+  - `request_id` resolution now validates owner connection/session in permission manager.
+  - Missing piece: authenticated `user_id` ownership (currently `user_id` is not established by auth).
+- Transport split: **in progress**
+  - HTTP message streaming endpoint is deprecated in API server comments.
+  - WS `send_message` + event push is available and recommended path.
+- Auth system: **not implemented**
+  - No login/token endpoints in current API.
+- Runtime isolation: **not implemented**
+  - API mode still uses shared runtime/service state.
 
 ## Target Architecture
 
@@ -75,12 +88,16 @@ Important: once split is complete, frontend message rendering state should be dr
 ### Phase 1: Security Baseline (must-have)
 
 1. Bind `permission_request` to user_id and session_id.
-2. Validate `permission_response` ownership before resolving.
+2. Validate `permission_response` ownership before resolving. (connection/session 已实现，user_id 待补齐)
 3. Add WS connection context (authenticated user_id).
 
 Acceptance:
 - Cross-user permission response is rejected.
 - Only owner user can approve/deny own request.
+
+Status:
+- `connection_id` / `session_id` owner check: done
+- `user_id` owner check with real auth: pending
 
 ### Phase 2: User Runtime Isolation
 
@@ -165,4 +182,4 @@ Acceptance:
 
 ## Recommended Immediate Next Step
 
-Implement Phase 1 first (permission ownership validation) because it is a direct security issue with minimal surface change.
+Implement authentication (token + WS bind user context) first, then complete Phase 1 user-level ownership validation.

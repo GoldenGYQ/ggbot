@@ -1,0 +1,10 @@
+2024-01-15 10:30:25 INFO Application started successfully
+2024-01-15 10:31:10 WARNING Memory usage is high: 85%
+2024-01-15 10:32:45 ERROR Database connection failed: Connection timeout
+2024-01-15 10:33:20 INFO Retrying database connection...
+2024-01-15 10:33:50 INFO Database connection established
+2024-01-15 10:35:15 INFO User login: user123
+2024-01-15 10:36:30 WARNING API response slow: 2500ms
+2024-01-15 10:37:45 ERROR File not found: /data/config.json
+2024-01-15 10:38:10 INFO Using default configuration
+2024-01-15 10:40:00 INFO Application shutdown initiated

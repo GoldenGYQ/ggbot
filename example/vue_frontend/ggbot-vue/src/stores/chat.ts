@@ -44,8 +44,11 @@ export const chatStore = reactive({
         this.messages = data.messages.map((m: any) => ({
           id: m.timestamp || Math.random().toString(),
           role: m.role,
-          content: m.content,
-          status: 'done'
+          content: m.content || '',
+          thinking: m.thinking,
+          plan: m.plan,
+          tools: m.tools,
+          status: m.status || 'done'
         }));
       }
     } catch (err) {

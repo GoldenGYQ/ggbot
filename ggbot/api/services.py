@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Callable
@@ -74,6 +75,7 @@ class APIService:
         )
 
         sessions = self.session_store.list_sessions(defaults)
+        default_ids = {defaults.chat, defaults.repl, defaults.tui}
 
         result = {
             "current_session_id": self.runtime.session_id,
@@ -88,6 +90,12 @@ class APIService:
 
         for session_id in sessions:
             meta = self.session_store.metas.get(session_id)
+            # 隐藏空白默认会话，避免前端一上来出现 repl/chat/tui 三个占位项。
+            if (
+                session_id in default_ids
+                and (meta is None or (meta.user_turns == 0 and not meta.title))
+            ):
+                continue
             result["sessions"].append({
                 "id": session_id,
                 "title": meta.title if meta else "Untitled",
@@ -151,21 +159,13 @@ class APIService:
             else:
                 raise ValueError(f"会话不存在: {session_id}")
 
-        # 获取会话消息
-        messages = []
+        # 获取会话消息（回放 transcript 事件，保留结构化字段）
+        messages: List[Dict[str, Any]] = []
         try:
-            # 加载transcript获取消息
             transcript_path = self.session_store.transcript_dir / f"{session_id}.jsonl"
             if transcript_path.exists():
                 transcript = Transcript(path=transcript_path)
-                for event in transcript.iter_events():
-                    if event.get("type") == "model_message":
-                        msg_data = event.get("data", {})
-                        messages.append({
-                            "role": msg_data.get("role"),
-                            "content": msg_data.get("content"),
-                            "timestamp": event.get("ts_ms", 0)
-                        })
+                messages = self._replay_transcript_messages(transcript)
         except Exception as e:
             logger.warning(f"加载会话消息失败: {e}")
 
@@ -180,13 +180,183 @@ class APIService:
             "updated_at": meta.updated_ms / 1000,
             "message_count": meta.user_turns,
             "user_turns": meta.user_turns,
-            "messages": messages[-100:],  # 返回最近100条消息
+            "messages": messages,
             "metadata": {
                 "title_gen_turn": meta.title_gen_turn,
                 "created_ms": meta.created_ms,
                 "updated_ms": meta.updated_ms,
             },
         }
+
+    def _extract_plan_items(self, text: str) -> List[Dict[str, Any]]:
+        if not text:
+            return []
+        match = re.search(r"<plan>(.*?)</plan>", text, re.DOTALL)
+        if not match:
+            return []
+        lines = [line.strip() for line in match.group(1).splitlines() if line.strip()]
+        plan: List[Dict[str, Any]] = []
+        for line in lines:
+            m = re.match(r"(?:\d+\.\s*)?\[(x| )\]\s*(.*?)(?:\s*\((.*?)\))?$", line)
+            if m:
+                plan.append(
+                    {
+                        "completed": m.group(1) == "x",
+                        "text": m.group(2).strip(),
+                        "tool": (m.group(3) or "").strip() or None,
+                    }
+                )
+            else:
+                plan.append({"completed": False, "text": line, "tool": None})
+        return plan
+
+    def _new_assistant_message(self, ts_ms: int) -> Dict[str, Any]:
+        return {
+            "role": "assistant",
+            "content": "",
+            "timestamp": ts_ms,
+            "thinking": "",
+            "plan": [],
+            "tools": [],
+            "status": "pending",
+        }
+
+    def _replay_transcript_messages(self, transcript: Transcript) -> List[Dict[str, Any]]:
+        messages: List[Dict[str, Any]] = []
+        current_assistant: Dict[str, Any] | None = None
+        tool_by_id: Dict[str, Dict[str, Any]] = {}
+
+        def start_new_assistant(ts_ms: int) -> Dict[str, Any]:
+            nonlocal current_assistant
+            current_assistant = self._new_assistant_message(ts_ms)
+            messages.append(current_assistant)
+            tool_by_id.clear()
+            return current_assistant
+
+        def ensure_assistant(ts_ms: int) -> Dict[str, Any]:
+            nonlocal current_assistant
+            if current_assistant is None:
+                current_assistant = start_new_assistant(ts_ms)
+            return current_assistant
+
+        for event in transcript.iter_events():
+            event_type = event.get("type")
+            data = event.get("data") or {}
+            ts_ms = int(event.get("ts_ms", 0) or 0)
+
+            if event_type == "model_message":
+                role = data.get("role")
+                if role == "user":
+                    current_assistant = None
+                    tool_by_id.clear()
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": data.get("content", ""),
+                            "timestamp": ts_ms,
+                            "status": "done",
+                        }
+                    )
+                    continue
+                if role == "thinking":
+                    assistant = ensure_assistant(ts_ms)
+                    thinking = data.get("thinking") or data.get("content") or ""
+                    assistant["thinking"] = (assistant.get("thinking") or "") + str(thinking)
+                    continue
+                if role == "assistant":
+                    assistant = ensure_assistant(ts_ms)
+                    next_content = data.get("content", "") or ""
+                    prev_content = assistant.get("content") or ""
+                    if next_content:
+                        if not prev_content:
+                            assistant["content"] = next_content
+                        elif next_content != prev_content and next_content not in prev_content:
+                            assistant["content"] = f"{prev_content}\n\n{next_content}"
+                    plan = self._extract_plan_items(str(data.get("raw_content") or ""))
+                    if plan:
+                        assistant["plan"] = plan
+                    assistant["status"] = "done"
+                    continue
+                if role == "tool":
+                    assistant = ensure_assistant(ts_ms)
+                    tool_call_id = data.get("tool_call_id")
+                    tool = tool_by_id.get(tool_call_id or "")
+                    if tool is None:
+                        tool = {
+                            "id": tool_call_id,
+                            "name": data.get("name") or "tool",
+                            "args": {},
+                            "status": "done",
+                        }
+                        assistant["tools"].append(tool)
+                        if tool_call_id:
+                            tool_by_id[str(tool_call_id)] = tool
+                    tool["result"] = data.get("content", "")
+                    tool["status"] = "done"
+                    continue
+
+            if event_type == "turn_update":
+                if messages and messages[-1].get("role") == "user" and current_assistant is None:
+                    ensure_assistant(ts_ms)
+                continue
+
+            if event_type == "thinking":
+                assistant = ensure_assistant(ts_ms)
+                assistant["thinking"] = (assistant.get("thinking") or "") + str(data.get("thinking") or "")
+                continue
+
+            if event_type == "tool_call":
+                assistant = ensure_assistant(ts_ms)
+                has_pretool_content = bool((assistant.get("content") or "").strip())
+                has_pretool_thinking = bool((assistant.get("thinking") or "").strip())
+                has_pretool_plan = bool(assistant.get("plan"))
+                has_tools = bool(assistant.get("tools"))
+                if (has_pretool_content or has_pretool_thinking or has_pretool_plan) and not has_tools:
+                    assistant["status"] = "done"
+                    assistant = start_new_assistant(ts_ms)
+                tool = {
+                    "id": data.get("id"),
+                    "name": data.get("name") or "tool",
+                    "args": data.get("arguments") if isinstance(data.get("arguments"), dict) else {},
+                    "status": "calling",
+                }
+                assistant["tools"].append(tool)
+                if tool.get("id"):
+                    tool_by_id[str(tool["id"])] = tool
+                continue
+
+            if event_type == "tool_result":
+                assistant = ensure_assistant(ts_ms)
+                tool_id = data.get("id")
+                tool_name = data.get("name")
+                target = tool_by_id.get(str(tool_id)) if tool_id else None
+                if target is None and tool_name:
+                    for t in reversed(assistant["tools"]):
+                        if t.get("name") == tool_name and t.get("status") == "calling":
+                            target = t
+                            break
+                if target is None:
+                    target = {
+                        "id": tool_id,
+                        "name": tool_name or "tool",
+                        "args": {},
+                        "status": "done",
+                    }
+                    assistant["tools"].append(target)
+                    if tool_id:
+                        tool_by_id[str(tool_id)] = target
+                target["status"] = "error" if data.get("error") else "done"
+                if data.get("content") is not None:
+                    target["result"] = data.get("content")
+                continue
+
+            if event_type == "turn_complete":
+                if current_assistant is not None:
+                    current_assistant["status"] = "done"
+                current_assistant = None
+                tool_by_id.clear()
+
+        return messages
 
     async def switch_session(self, session_id: str) -> Dict[str, Any]:
         """切换当前会话"""
@@ -228,9 +398,21 @@ class APIService:
         if session_id == self.runtime.session_id:
             raise ValueError("不能删除当前活动会话")
 
-        # 删除会话文件
-        existed = session_id in self.session_store.metas
-        self.session_store.clear_session(session_id)
+        # 真正删除会话：移除元数据 + 删除 transcript 文件。
+        meta_existed = session_id in self.session_store.metas
+        if meta_existed:
+            self.session_store.metas.pop(session_id, None)
+            self.session_store.save()
+
+        transcript_path = self.session_store.transcript_dir / f"{session_id}.jsonl"
+        file_existed = transcript_path.exists()
+        if file_existed:
+            try:
+                transcript_path.unlink()
+            except OSError:
+                logger.warning("删除会话文件失败: %s", transcript_path, exc_info=True)
+
+        existed = meta_existed or file_existed
 
         return {
             "session_id": session_id,

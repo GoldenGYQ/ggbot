@@ -134,7 +134,10 @@ export class GGbotAPI {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
-    const commandId = Math.random().toString(36).substring(7);
+    const commandId =
+      (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     this.ws.send(JSON.stringify({
       type: 'command',
       id: commandId,

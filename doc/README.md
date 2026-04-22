@@ -14,8 +14,10 @@
 - 开发指南：[development.md](development.md)
 - 配置与运行（LiteLLM / 环境变量 / transcript）：[configuration.md](configuration.md)
 - 安全与权限边界（workspace sandbox、shell/network 风险）：[security.md](security.md)
-- 测试策略与速查：[tests.md](tests.md)
-- 常见故障排查：[troubleshooting.md](troubleshooting.md)
+- 当前问题与审计结论（高危/中危/冗余）：[当前问题.md](当前问题.md)
+- 用户认证与传输分层改造方案：[user_auth_and_transport_split_plan.md](user_auth_and_transport_split_plan.md)
+- 编排与事件流使用指南：[orchestration_guide.md](orchestration_guide.md)
+- 流式传输修复记录：[streaming_fix.md](streaming_fix.md)
 - 贡献流程：[contributing.md](contributing.md)
 
 ## 文档分级约定

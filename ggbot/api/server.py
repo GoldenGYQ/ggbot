@@ -281,16 +281,19 @@ class APIServer:
             response.headers["access-control-allow-headers"] = "*"
             return response
 
-        @self.app.post("/api/v1/messages")
-        async def send_message(request: MessageRequest):
-            stream = request.stream if hasattr(request, 'stream') else False
-            if stream:
-                return StreamingResponse(
-                    self._stream_send_message(request),
-                    media_type="application/x-ndjson"
-                )
-            else:
-                return await self._handle_send_message(request)
+        # DEPRECATED (Transport split): HTTP message send endpoint is disabled.
+        # Realtime message lifecycle is WS-only via `send_message` command.
+        # Legacy code kept for reference (do not delete):
+        # @self.app.post("/api/v1/messages")
+        # async def send_message(request: MessageRequest):
+        #     stream = request.stream if hasattr(request, 'stream') else False
+        #     if stream:
+        #         return StreamingResponse(
+        #             self._stream_send_message(request),
+        #             media_type="application/x-ndjson"
+        #         )
+        #     else:
+        #         return await self._handle_send_message(request)
 
         @self.app.get("/api/v1/sessions")
         async def list_sessions():
@@ -332,9 +335,12 @@ class APIServer:
         async def get_recent_events(limit: int = 100):
             return await self._handle_get_recent_events(limit)
 
-        @self.app.post("/api/v1/permissions/respond")
-        async def respond_permission(request: PermissionResponseRequest):
-            return await self._handle_permission_response(request)
+        # DEPRECATED (Transport split): HTTP permission response endpoint is disabled.
+        # Permission decisions must go through WS `permission_response` command.
+        # Legacy code kept for reference (do not delete):
+        # @self.app.post("/api/v1/permissions/respond")
+        # async def respond_permission(request: PermissionResponseRequest):
+        #     return await self._handle_permission_response(request)
 
     async def _handle_websocket(self, websocket: WebSocket, connection_id: str):
         """处理WebSocket连接"""
@@ -351,7 +357,7 @@ class APIServer:
             while True:
                 try:
                     data = await websocket.receive_json()
-                    await self._handle_client_message(connection_id, data)
+                    await self._handle_client_message(connection_id, data, event_loop=event_loop)
                 except WebSocketDisconnect:
                     break
                 except Exception as e:
@@ -384,7 +390,13 @@ class APIServer:
         }
         await self.connection_manager.send_message(connection_id, message)
 
-    async def _handle_client_message(self, connection_id: str, data: Dict[str, Any]):
+    async def _handle_client_message(
+        self,
+        connection_id: str,
+        data: Dict[str, Any],
+        *,
+        event_loop: asyncio.AbstractEventLoop | None = None,
+    ):
         """处理客户端消息"""
         try:
             message_type = data.get("type")
@@ -397,7 +409,12 @@ class APIServer:
                 if not isinstance(command, str):
                     raise ValueError("命令必须是字符串")
                 
-                response = await self._handle_command(command, payload, connection_id=connection_id)
+                response = await self._handle_command(
+                    command,
+                    payload,
+                    connection_id=connection_id,
+                    event_loop=event_loop,
+                )
 
                 await self.connection_manager.send_message(connection_id, {
                     "type": "response",
@@ -429,6 +446,7 @@ class APIServer:
         payload: Dict[str, Any],
         *,
         connection_id: str | None = None,
+        event_loop: asyncio.AbstractEventLoop | None = None,
     ) -> Dict[str, Any]:
         """处理命令"""
         if command == "send_message":
@@ -436,11 +454,18 @@ class APIServer:
             session_id = payload.get("session_id")
             max_turns = payload.get("max_turns")
             thinking_enabled = payload.get("thinking_enabled")
+            ws_event_callback: Callable[[RuntimeEvent], None] | None = None
+            if connection_id and event_loop is not None:
+                # Bind runtime events to the initiating websocket connection.
+                def ws_event_callback(event: RuntimeEvent) -> None:
+                    self._schedule_event_delivery(event_loop, connection_id, event)
+
             return await self.api_service.send_message(
                 content,
                 session_id,
                 max_turns,
                 thinking_enabled,
+                event_callback=ws_event_callback,
                 connection_id=connection_id,
             )
         elif command == "list_sessions":
