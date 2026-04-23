@@ -11,13 +11,10 @@ from typing import Any, Dict, List, Optional, Callable
 
 from ..runtime.agent_loop import ToolLimits, run_query
 from ..models.runtime_models import RuntimeEvent
-from ..events.event_bus import EventSubscription, get_global_event_bus, subscribe_to_events
-from ..app.app_bootstrap import (
-    AgentRuntime,
-    switch_runtime_session,
-)
-from ..events.runtime_events import consume_runtime_events
+from ..app.app_bootstrap import AgentRuntime
+from ..events.runtime_events import consume_runtime_events, runtime_event
 from ..api.permission_manager import get_permission_manager
+from .session_runtime_manager import SessionExecutionContext, SessionRuntimeManager
 from ..state.sessions import default_sessions
 from ..state.session_store import SessionStore
 from ..state.transcript import Transcript
@@ -38,24 +35,11 @@ class APIService:
         self.active_queries: Dict[str, asyncio.Task] = {}
         self.event_buffer: List[Dict[str, Any]] = []
         self.max_event_buffer_size = 1000
-        self._event_subscription: EventSubscription | None = subscribe_to_events(self._on_runtime_event)
-
-    def _on_runtime_event(self, event: RuntimeEvent) -> None:
-        """将运行时事件写入内存缓冲，供 /events 接口实时读取。"""
-        self.add_event(
-            {
-                "type": event.type,
-                "source": event.source,
-                "timestamp": time.time(),
-                "data": event.data,
-            }
-        )
+        self.runtime_manager = SessionRuntimeManager(runtime)
 
     def close(self) -> None:
-        """释放事件订阅，避免全局事件总线泄漏订阅对象。"""
-        if self._event_subscription is not None:
-            get_global_event_bus().unsubscribe(self._event_subscription)
-            self._event_subscription = None
+        """保留关闭接口，兼容现有调用方。"""
+        return
 
     def __del__(self) -> None:
         try:
@@ -63,6 +47,17 @@ class APIService:
         except Exception:
             # 析构阶段不抛出异常，避免解释器关闭时出现噪音日志。
             pass
+
+    @property
+    def current_session_id(self) -> str:
+        return self.runtime_manager.current_session_id
+
+    @current_session_id.setter
+    def current_session_id(self, value: str) -> None:
+        self.runtime_manager.current_session_id = value
+
+    def _get_or_create_session_context(self, session_id: str) -> SessionExecutionContext:
+        return self.runtime_manager.get_or_create_context(session_id)
 
     # ==================== 会话管理 ====================
 
@@ -78,7 +73,7 @@ class APIService:
         default_ids = {defaults.chat, defaults.repl, defaults.tui}
 
         result = {
-            "current_session_id": self.runtime.session_id,
+            "current_session_id": self.current_session_id,
             "default_sessions": {
                 "chat": defaults.chat,
                 "repl": defaults.repl,
@@ -104,7 +99,7 @@ class APIService:
                 "updated_at": (meta.updated_ms / 1000) if meta else 0,
                 "message_count": meta.user_turns if meta else 0,
                 "user_turns": meta.user_turns if meta else 0,
-                "is_current": session_id == self.runtime.session_id
+                "is_current": session_id == self.current_session_id
             })
 
         return result
@@ -360,18 +355,11 @@ class APIService:
 
     async def switch_session(self, session_id: str) -> Dict[str, Any]:
         """切换当前会话"""
-        # 保存当前会话状态
-        self.session_store.ensure_saved(self.runtime.session_id)
-        previous_session_id = self.runtime.session_id
-
-        # 切换到新会话
-        try:
-            loaded_count = switch_runtime_session(self.runtime, session_id=session_id)
-        except AttributeError:
-            # 测试桩 runtime 可能缺少完整字段（例如 system_message），
-            # 退化为只更新会话 ID，保证 API 层行为可测试。
-            self.runtime.session_id = session_id
-            loaded_count = 0
+        self.session_store.ensure_saved(self.current_session_id)
+        previous_session_id = self.current_session_id
+        context = self._get_or_create_session_context(session_id)
+        loaded_count = len(context.messages)
+        self.current_session_id = session_id
 
         # 确保新会话的元数据存在
         self.session_store.ensure_saved(session_id)
@@ -395,7 +383,7 @@ class APIService:
 
     async def delete_session(self, session_id: str) -> Dict[str, Any]:
         """删除会话"""
-        if session_id == self.runtime.session_id:
+        if session_id == self.current_session_id:
             raise ValueError("不能删除当前活动会话")
 
         # 真正删除会话：移除元数据 + 删除 transcript 文件。
@@ -413,6 +401,7 @@ class APIService:
                 logger.warning("删除会话文件失败: %s", transcript_path, exc_info=True)
 
         existed = meta_existed or file_existed
+        self.runtime_manager.drop_context(session_id)
 
         return {
             "session_id": session_id,
@@ -429,9 +418,10 @@ class APIService:
                           event_callback: Optional[Callable[[RuntimeEvent], None]] = None,
                           connection_id: Optional[str] = None) -> Dict[str, Any]:
         """发送消息并获取响应"""
-        # 如果指定了会话ID，切换到该会话
-        if session_id and session_id != self.runtime.session_id:
-            await self.switch_session(session_id)
+        target_session_id = session_id or self.current_session_id
+        self.current_session_id = target_session_id
+        self.session_store.ensure_saved(target_session_id)
+        context = self._get_or_create_session_context(target_session_id)
 
         # 请求级参数仅影响本次调用，避免污染全局 runtime 配置。
         effective_max_turns = self.runtime.settings.max_turns if max_turns is None else max_turns
@@ -443,22 +433,24 @@ class APIService:
 
         # 准备工具上下文
         tool_context = ToolContext(
-            session_id=self.runtime.session_id,
-            transcript=self.runtime.transcript,
+            session_id=target_session_id,
+            transcript=context.transcript,
             workspace_root=self.runtime.settings.workspace_root,
         )
-        permission_manager = get_permission_manager()
-        permission_ctx_token = permission_manager.set_request_context(
-            connection_id=connection_id,
-            session_id=self.runtime.session_id,
-            user_id=None,
-        )
-
         # 创建事件收集器
         # 如果是流式模式，我们需要实时发送事件
         events_collector = EventsCollector()
 
         def combined_event_callback(event: RuntimeEvent):
+            event_payload = {
+                "type": event.type,
+                "source": event.source,
+                "timestamp": time.time(),
+                "session_id": target_session_id,
+                "data": event.data,
+            }
+            self.add_event(event_payload)
+
             # 1. 收集到 collector (为了最后的 result)
             consume_runtime_events(
                 [event],
@@ -479,34 +471,43 @@ class APIService:
             if event_callback:
                 event_callback(event)
 
+        permission_manager = get_permission_manager()
+        permission_ctx_token = permission_manager.set_request_context(
+            connection_id=connection_id,
+            session_id=target_session_id,
+            user_id=None,
+            event_callback=combined_event_callback,
+            transcript=context.transcript,
+        )
+
         try:
-            # 运行查询
-            result = await asyncio.to_thread(
-                run_query,
-                client=self.runtime.client,
-                registry=self.runtime.registry,
-                transcript=self.runtime.transcript,
-                messages=self.runtime.messages,
-                user_text=content,
-                max_turns=effective_max_turns,
-                stream_printer=None, # 我们现在用 event_callback 处理 delta
-                tool_printer=None, # 我们现在用 event_callback 处理 tool output
-                tool_context=tool_context,
-                tool_limits=ToolLimits(
-                    max_tool_calls=self.runtime.settings.max_tool_calls,
-                    max_tool_calls_per_tool=self.runtime.settings.max_tool_calls_per_tool,
-                    max_tool_calls_same_args=self.runtime.settings.max_tool_calls_same_args,
-                ),
-                thinking_enabled=effective_thinking_enabled,
-                event_callback=combined_event_callback,
-            )
+            async with self.runtime_manager.get_lock(target_session_id):
+                result = await asyncio.to_thread(
+                    run_query,
+                    client=self.runtime.client,
+                    registry=self.runtime.registry,
+                    transcript=context.transcript,
+                    messages=context.messages,
+                    user_text=content,
+                    max_turns=effective_max_turns,
+                    stream_printer=None, # 我们现在用 event_callback 处理 delta
+                    tool_printer=None, # 我们现在用 event_callback 处理 tool output
+                    tool_context=tool_context,
+                    tool_limits=ToolLimits(
+                        max_tool_calls=self.runtime.settings.max_tool_calls,
+                        max_tool_calls_per_tool=self.runtime.settings.max_tool_calls_per_tool,
+                        max_tool_calls_same_args=self.runtime.settings.max_tool_calls_same_args,
+                    ),
+                    thinking_enabled=effective_thinking_enabled,
+                    event_callback=combined_event_callback,
+                )
 
             # 更新会话统计
-            turn_no = self.session_store.increment_user_turn(self.runtime.session_id)
+            turn_no = self.session_store.increment_user_turn(target_session_id)
 
             # 生成标题（如果是第一轮）
             title = None
-            current_meta = self.session_store.metas.get(self.runtime.session_id)
+            current_meta = self.session_store.metas.get(target_session_id)
             should_generate_title = (
                 turn_no == 1
                 and (current_meta is None or not current_meta.title or current_meta.title == "Untitled")
@@ -514,11 +515,21 @@ class APIService:
             if should_generate_title:
                 title = await self._generate_title(content)
                 if title:
-                    self.session_store.set_title(self.runtime.session_id, title=title, title_gen_turn=turn_no)
+                    self.session_store.set_title(target_session_id, title=title, title_gen_turn=turn_no)
+                    combined_event_callback(
+                        runtime_event(
+                            "session_update",
+                            {
+                                "session_id": target_session_id,
+                                "title": title,
+                                "user_turns": turn_no,
+                            },
+                        )
+                    )
 
             return {
                 "success": True,
-                "session_id": self.runtime.session_id,
+                "session_id": target_session_id,
                 "turn_number": turn_no,
                 "turns_used": result.turns_used,
                 "title": title,
@@ -618,14 +629,15 @@ class APIService:
         if name not in tool_names:
             raise ValueError(f"工具不存在: {name}")
 
-        # 如果指定了会话ID，确保使用正确的会话
-        if session_id != self.runtime.session_id:
-            await self.switch_session(session_id)
+        target_session_id = session_id or self.current_session_id
+        self.current_session_id = target_session_id
+        self.session_store.ensure_saved(target_session_id)
+        context = self._get_or_create_session_context(target_session_id)
 
         # 准备工具上下文
         tool_context = ToolContext(
-            session_id=self.runtime.session_id,
-            transcript=self.runtime.transcript,
+            session_id=target_session_id,
+            transcript=context.transcript,
             workspace_root=self.runtime.settings.workspace_root,
         )
 
@@ -643,7 +655,7 @@ class APIService:
                 "success": True,
                 "tool_name": name,
                 "result": result,
-                "session_id": self.runtime.session_id
+                "session_id": target_session_id
             }
 
         except Exception as e:
@@ -652,7 +664,7 @@ class APIService:
                 "success": False,
                 "tool_name": name,
                 "error": str(e),
-                "session_id": self.runtime.session_id
+                "session_id": target_session_id
             }
 
     async def respond_permission(
@@ -698,7 +710,7 @@ class APIService:
             "thinking_enabled": settings.thinking_enabled,
             "shell_confirm": settings.shell_confirm,
             "transcript_dir": str(settings.resolved_transcript_dir()),
-            "session_id": self.runtime.session_id
+            "session_id": self.current_session_id
         }
 
         # 检查API密钥是否存在（但不暴露值）

@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Set
 import json
-import os
 
 
 class WorkspaceManager:
@@ -12,7 +11,7 @@ class WorkspaceManager:
     def __init__(self, workspace_root: Path):
         self.workspace_root = workspace_root.resolve()
         self.allowed_workspaces: Set[Path] = {self.workspace_root}
-        self.config_file = self.workspace_root / ".ggbot" / "allowed_workspaces.json"
+        self.config_file = (Path.home() / ".ggbot" / "allowed_workspaces.json").resolve()
 
         # 加载已保存的允许工作区
         self._load_allowed_workspaces()
@@ -23,8 +22,18 @@ class WorkspaceManager:
             try:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    for path_str in data.get("allowed_workspaces", []):
-                        path = Path(path_str).resolve()
+                    key = str(self.workspace_root)
+                    all_mappings = data.get("workspace_roots", {})
+                    raw_list = []
+                    if isinstance(all_mappings, dict) and isinstance(all_mappings.get(key), list):
+                        raw_list = all_mappings.get(key, [])
+                    elif isinstance(data.get("allowed_workspaces"), list):
+                        # Legacy file format fallback.
+                        raw_list = data.get("allowed_workspaces", [])
+
+                    for path_str in raw_list:
+                        raw_path = Path(path_str)
+                        path = (raw_path if raw_path.is_absolute() else (self.workspace_root / raw_path)).resolve()
                         # 只加载在workspace_root下的工作区
                         try:
                             path.relative_to(self.workspace_root)
@@ -39,13 +48,25 @@ class WorkspaceManager:
     def _save_allowed_workspaces(self) -> None:
         """保存允许的工作区到配置文件"""
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "allowed_workspaces": [
-                str(path.relative_to(self.workspace_root))
-                if path != self.workspace_root else "."
-                for path in self.allowed_workspaces
-            ]
-        }
+        data: dict[str, object]
+        if self.config_file.exists():
+            try:
+                data = json.loads(self.config_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                data = {}
+        else:
+            data = {}
+
+        mappings = data.get("workspace_roots")
+        if not isinstance(mappings, dict):
+            mappings = {}
+        mappings[str(self.workspace_root)] = [
+            str(path.relative_to(self.workspace_root))
+            if path != self.workspace_root else "."
+            for path in self.allowed_workspaces
+        ]
+        data["workspace_roots"] = mappings
+
         with open(self.config_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 

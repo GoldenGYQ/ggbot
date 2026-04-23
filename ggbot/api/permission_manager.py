@@ -6,9 +6,12 @@ import uuid
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
+from collections.abc import Callable
 
 from ..events.event_bus import publish_event
 from ..models.runtime_models import RuntimeEvent
+from ..events.runtime_events import runtime_event_to_transcript_type
+from ..state.transcript import Transcript
 
 
 @dataclass
@@ -32,9 +35,15 @@ class PermissionManager:
         self._default_timeout_s = default_timeout_s
         self._lock = threading.Lock()
         self._pending: dict[str, PendingPermission] = {}
-        self._request_context: ContextVar[dict[str, str | None]] = ContextVar(
+        self._request_context: ContextVar[dict[str, Any]] = ContextVar(
             "permission_request_context",
-            default={"connection_id": None, "session_id": None, "user_id": None},
+            default={
+                "connection_id": None,
+                "session_id": None,
+                "user_id": None,
+                "event_callback": None,
+                "transcript": None,
+            },
         )
 
     def set_request_context(
@@ -43,17 +52,37 @@ class PermissionManager:
         connection_id: str | None,
         session_id: str | None,
         user_id: str | None = None,
+        event_callback: Callable[[RuntimeEvent], None] | None = None,
+        transcript: Transcript | None = None,
     ):
         return self._request_context.set(
             {
                 "connection_id": connection_id,
                 "session_id": session_id,
                 "user_id": user_id,
+                "event_callback": event_callback,
+                "transcript": transcript,
             }
         )
 
     def reset_request_context(self, token) -> None:
         self._request_context.reset(token)
+
+    def _emit(self, event: RuntimeEvent, *, context: dict[str, Any]) -> None:
+        callback = context.get("event_callback")
+        transcript = context.get("transcript")
+
+        if isinstance(transcript, Transcript):
+            data = dict(event.data)
+            data["_event_source"] = event.source
+            data["_event_type"] = event.type
+            transcript.append(runtime_event_to_transcript_type(event), data)
+
+        if callable(callback):
+            callback(event)
+            return
+
+        publish_event(event)
 
     def request(
         self,
@@ -77,7 +106,7 @@ class PermissionManager:
         with self._lock:
             self._pending[request_id] = pending
 
-        publish_event(
+        self._emit(
             RuntimeEvent(
                 type="permission_request",
                 data={
@@ -89,7 +118,8 @@ class PermissionManager:
                     "user_id": pending.owner_user_id,
                 },
                 source="api_permission",
-            )
+            ),
+            context=context,
         )
 
         wait_timeout = self._default_timeout_s if timeout_s is None else timeout_s
@@ -105,7 +135,7 @@ class PermissionManager:
             allowed = pending.allowed
             reason = pending.reason
 
-        publish_event(
+        self._emit(
             RuntimeEvent(
                 type="permission_response",
                 data={
@@ -118,7 +148,8 @@ class PermissionManager:
                     "user_id": pending.owner_user_id,
                 },
                 source="api_permission",
-            )
+            ),
+            context=context,
         )
 
         return allowed, reason, request_id

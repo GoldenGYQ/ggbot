@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from .config import Settings
 from ..prompts import PromptManager
@@ -26,12 +26,6 @@ class AgentRuntime:
     system_message: ChatMessage
     registry: ToolRegistry
     client: ChatCompletionClient
-    transcript_logger: Any = None  # 将在创建时初始化
-
-    def __post_init__(self):
-        # 初始化 transcript 记录器
-        from ..events.transcript_logger import create_transcript_logger
-        self.transcript_logger = create_transcript_logger(self.transcript)
 
 
 @dataclass(frozen=True)

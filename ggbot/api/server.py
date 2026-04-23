@@ -18,7 +18,6 @@ from pydantic import BaseModel, Field, ValidationError
 
 from ..runtime.agent_loop import ToolLimits
 from ..models.runtime_models import RuntimeEvent, SessionState
-from ..events.event_bus import get_global_event_bus, subscribe_to_events
 from ..app.app_bootstrap import AgentRuntime
 from ..state.session_store import SessionStore
 from ..state.transcript import Transcript
@@ -136,7 +135,6 @@ class ConnectionManager:
 
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
-        self.connection_subscriptions: Dict[str, Any] = {}
         self._connection_count_log_threshold = 10  # 每10个连接记录一次
 
     async def connect(self, websocket: WebSocket, connection_id: str):
@@ -156,12 +154,6 @@ class ConnectionManager:
         """断开WebSocket连接"""
         if connection_id in self.active_connections:
             del self.active_connections[connection_id]
-
-        # 取消事件订阅
-        if connection_id in self.connection_subscriptions:
-            subscription = self.connection_subscriptions[connection_id]
-            get_global_event_bus().unsubscribe(subscription)
-            del self.connection_subscriptions[connection_id]
 
         count = len(self.active_connections)
         logger.debug(f"WebSocket断开: {connection_id}, 剩余连接: {count}")
@@ -348,12 +340,6 @@ class APIServer:
         event_loop = asyncio.get_running_loop()
 
         try:
-            def event_handler(event: RuntimeEvent):
-                self._schedule_event_delivery(event_loop, connection_id, event)
-
-            subscription = subscribe_to_events(event_handler)
-            self.connection_manager.connection_subscriptions[connection_id] = subscription
-
             while True:
                 try:
                     data = await websocket.receive_json()

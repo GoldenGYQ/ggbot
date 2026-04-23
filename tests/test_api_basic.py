@@ -95,6 +95,9 @@ def test_services_module():
     """测试服务模块"""
     try:
         from ggbot.api.services import APIService, EventsCollector
+        from ggbot.api.session_runtime_manager import SessionRuntimeManager
+        from ggbot.state.transcript import Transcript
+        from ggbot.models.protocol_models import ChatMessage
 
         # 测试EventsCollector
         collector = EventsCollector()
@@ -136,6 +139,18 @@ def test_services_module():
         assert service is not None
         service.close()
 
+        # 测试 SessionRuntimeManager 隔离不同会话上下文
+        runtime.transcript = Transcript(path=Path(".ggbot/transcripts/test_session.jsonl"))
+        runtime.messages = [ChatMessage(role="system", content="sys")]
+        runtime.system_message = ChatMessage(role="system", content="sys")
+        manager = SessionRuntimeManager(runtime)
+        context_a = manager.get_or_create_context("test_session")
+        context_b = manager.get_or_create_context("other_session")
+        assert context_a.session_id == "test_session"
+        assert context_b.session_id == "other_session"
+        assert context_a is not context_b
+        print("[OK] SessionRuntimeManager 测试通过")
+
     except Exception as e:
         pytest.fail(f"服务模块测试失败: {e}")
 
@@ -143,7 +158,7 @@ def test_services_module():
 def test_cli_command():
     """测试CLI命令"""
     try:
-        from ggbot.cli import app
+        from ggbot.command import app
 
         # 检查api命令是否注册
         command_names = [command.name for command in app.registered_commands]

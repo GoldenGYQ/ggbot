@@ -1,4 +1,4 @@
-"""测试事件系统和 transcript 记录器"""
+"""测试事件系统"""
 
 import json
 from pathlib import Path
@@ -25,7 +25,6 @@ from ggbot.models.runtime_models import (
 )
 from ggbot.events.event_bus import EventBus, get_global_event_bus, publish_event
 from ggbot.state.transcript import Transcript
-from ggbot.events.transcript_logger import TranscriptLogger, create_transcript_logger
 
 
 def test_event_bus_basic():
@@ -203,55 +202,6 @@ def test_domain_event_creation():
     permission_response_event = create_permission_response_event(decision)
     assert permission_response_event.type == "permission_response"
     assert permission_response_event.data["allowed"] is True
-
-
-def test_transcript_logger(tmp_path: Path):
-    """测试 transcript 记录器"""
-    transcript_path = tmp_path / "test_transcript.jsonl"
-    transcript = Transcript(path=transcript_path)
-    logger = create_transcript_logger(transcript)
-
-    # 记录各种事件
-    logger.log_domain_event(create_assistant_delta_event("Hello"))
-    logger.log_domain_event(create_assistant_final_event("Hello World"))
-    logger.log_domain_event(create_thinking_event("Thinking..."))
-
-    # 验证 transcript 文件被创建
-    assert transcript_path.exists()
-
-    # 读取并验证内容
-    with open(transcript_path, 'r', encoding='utf-8') as f:
-        lines = [json.loads(line.strip()) for line in f if line.strip()]
-
-    assert len(lines) >= 3  # 至少有三个事件
-
-    # 验证事件类型
-    event_types = {line["type"] for line in lines}
-    assert "model_message" in event_types  # assistant_delta 和 assistant_final 应该被记录为 model_message
-    assert "thinking" in event_types
-
-
-def test_transcript_logger_event_subscription(tmp_path: Path):
-    """测试 transcript 记录器的事件订阅"""
-    transcript_path = tmp_path / "test_subscription.jsonl"
-    transcript = Transcript(path=transcript_path)
-    logger = create_transcript_logger(transcript)
-
-    # 通过事件总线发布事件
-    publish_event(create_assistant_delta_event("Test delta"))
-    publish_event(create_thinking_event("Test thinking"))
-
-    # 给事件总线一些时间处理
-    import time
-    time.sleep(0.1)
-
-    # 验证 transcript 文件被创建并有内容
-    assert transcript_path.exists()
-
-    with open(transcript_path, 'r', encoding='utf-8') as f:
-        lines = [line.strip() for line in f if line.strip()]
-
-    assert len(lines) >= 2  # 至少有两个事件
 
 
 def test_event_handler_class():

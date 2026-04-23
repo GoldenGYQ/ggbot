@@ -207,6 +207,30 @@ const decidePermission = async (tool: any, allowed: boolean) => {
   font-size: 0.9em;
 }
 
+:deep(.bubble table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 14px;
+}
+
+:deep(.bubble th),
+:deep(.bubble td) {
+  border: 1px solid #dcdfe6;
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+:deep(.bubble thead th) {
+  background: #f7f8fa;
+  font-weight: 600;
+}
+
+:deep(.bubble tbody tr:nth-child(even)) {
+  background: #fafbfc;
+}
+
 .thinking-wrapper, .plan-wrapper {
   margin-bottom: 8px;
 }

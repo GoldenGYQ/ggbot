@@ -224,6 +224,14 @@ const handleWSError = (event: any) => {
   markLastAssistantAsError(`❌ 错误: ${event.message || 'WebSocket错误'}`);
 };
 
+const updateSessionTitleLocally = (sessionId: string, title: string) => {
+  if (!sessionId || !title) return;
+  const session = chatStore.sessions.find((item) => item.id === sessionId);
+  if (session) {
+    session.title = title;
+  }
+};
+
 const handleWSResponse = (event: any) => {
   if (event.command !== 'send_message') return;
   const commandId = event.id;
@@ -237,6 +245,12 @@ const handleWSResponse = (event: any) => {
   if (payload.success === false) {
     markLastAssistantAsError(`❌ 错误: ${payload.error || '消息发送失败'}`);
     return;
+  }
+
+  const payloadTitle = typeof payload.title === 'string' ? payload.title.trim() : '';
+  const payloadSessionId = typeof payload.session_id === 'string' ? payload.session_id : '';
+  if (payloadTitle && payloadSessionId) {
+    updateSessionTitleLocally(payloadSessionId, payloadTitle);
   }
 
   // Fallback: when realtime deltas are absent, use final_response from command response.

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import time
@@ -468,6 +468,10 @@ class GGbotTui(App[None]):
     def _append_assistant_final(self, text: str) -> None:
         if text.strip():
             self.query_one(RichLog).write(text)
+        # Avoid duplicating the previous answer on next submit:
+        # the stream buffer should be considered consumed once final arrives.
+        self._assistant_stream_buffer = None
+        self.query_one("#stream", Static).update("")
 
     def _render_tool_call(self, name: str) -> None:
         self.query_one(RichLog).write(Text(f"[tool:{name}]", style="bold magenta"))

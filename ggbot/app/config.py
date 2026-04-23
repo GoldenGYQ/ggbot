@@ -13,6 +13,18 @@ except Exception:  # pragma: no cover
     tomllib = None  # type: ignore
 
 
+def _default_workspace_root() -> Path:
+    return (Path.home() / ".ggbot" / "workspace").resolve()
+
+
+def _default_transcript_dir() -> Path:
+    return (Path.home() / ".ggbot" / "transcripts").resolve()
+
+
+def _default_config_home() -> Path:
+    return (Path.home() / ".ggbot").resolve()
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="",
@@ -26,7 +38,7 @@ class Settings(BaseSettings):
     openai_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_MODEL")
 
     # Workspace / sandbox
-    workspace_root: Path = Field(default_factory=lambda: Path.cwd(), alias="GGBOT_WORKSPACE_ROOT")
+    workspace_root: Path = Field(default_factory=_default_workspace_root, alias="GGBOT_WORKSPACE_ROOT")
 
     # Behavior
     max_turns: int = Field(default=8, alias="GGBOT_MAX_TURNS")
@@ -54,22 +66,22 @@ class Settings(BaseSettings):
     def resolved_transcript_dir(self) -> Path:
         if self.transcript_dir is not None:
             return self.transcript_dir
-        return (self.workspace_root / ".ggbot" / "transcripts").resolve()
+        return _default_transcript_dir()
 
     @classmethod
     def load(cls, *, workspace_root: Path | None = None) -> "Settings":
         """Load settings from (in priority order):
 
         1) real environment variables
-        2) dotenv files: ./.env, ./.ggbot/.env
-        3) TOML config: ./.ggbot/config.toml (only fills values not set by env)
+        2) global dotenv file: ~/.ggbot/.env
+        3) global TOML config: ~/.ggbot/config.toml (only fills values not set by env)
         4) defaults
 
         This matches the expectation: you can put API keys in .env/config.toml,
         but exported env vars always win.
         """
 
-        root = workspace_root or Path.cwd()
+        root = workspace_root or _default_workspace_root()
 
         # Load from real environment variables only. We intentionally do NOT rely on
         # BaseSettings env_file handling because its paths are resolved relative to
@@ -78,8 +90,8 @@ class Settings(BaseSettings):
         settings = cls()
         settings.workspace_root = root
 
-        # TOML config (optional)
-        config_path = (settings.workspace_root / ".ggbot" / "config.toml").resolve()
+        # Global TOML config (optional)
+        config_path = (_default_config_home() / "config.toml").resolve()
         if tomllib is not None and config_path.exists():
             try:
                 data = tomllib.loads(config_path.read_text(encoding="utf-8"))
@@ -96,11 +108,10 @@ class Settings(BaseSettings):
     @classmethod
     def _apply_dotenv(cls, settings: "Settings") -> None:
         values: dict[str, str] = {}
-        root = settings.workspace_root
+        config_home = _default_config_home()
 
-        # .env then .ggbot/.env (later overrides earlier)
-        values.update(_read_dotenv_file(root / ".env"))
-        values.update(_read_dotenv_file(root / ".ggbot" / ".env"))
+        # Global dotenv only.
+        values.update(_read_dotenv_file(config_home / ".env"))
 
         def apply(env_name: str, attr: str, *, kind: str) -> None:
             if env_name not in values:
@@ -108,7 +119,7 @@ class Settings(BaseSettings):
             if env_name in os.environ:
                 return
             raw = values[env_name]
-            coerced = _coerce_env_value(raw, kind=kind, root=root)
+            coerced = _coerce_env_value(raw, kind=kind, root=config_home)
             setattr(settings, attr, coerced)
 
         apply("OPENAI_BASE_URL", "openai_base_url", kind="str")
