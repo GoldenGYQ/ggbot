@@ -34,7 +34,7 @@ ggbot/
   command.py                     # Typer CLI 入口（chat/repl/tui/log/api）
 
   app/
-    config.py                    # 配置加载（env/.env/toml）
+    config.py                    # 配置加载（~/.ggbot/.env + ~/.ggbot/config.toml）
     app_bootstrap.py             # AppSession / AgentRuntime 创建与会话切换
     client_factory.py            # LLM client 工厂
 
@@ -42,6 +42,7 @@ ggbot/
     server.py                    # FastAPI + WS 路由、连接管理、命令分发
     services.py                  # 会话、消息、工具、配置、权限响应等服务
     permission_manager.py        # shell 权限请求/响应协调（阻塞等待）
+    session_runtime_manager.py   # API 模式多会话上下文缓存与会话锁
 
   runtime/
     agent_loop.py                # run_query 主循环（turn + tool budget）
@@ -59,7 +60,7 @@ ggbot/
     event_bus.py                 # 全局事件总线（发布/订阅）
     runtime_events.py            # runtime event 构造与消费分发
     event_mappings.py            # domain event -> transcript event 映射
-    transcript_logger.py         # 订阅 event_bus 并写 transcript
+    transcript_logger.py         # 兼容/辅助链路：订阅 event_bus 并写 transcript
     event_handlers/*             # 事件处理器（TUI/监控适配）
 
   tools/
@@ -84,62 +85,54 @@ ggbot/
 
   workspace/
     permissions.py               # 工作区路径约束
-    workspace_manager.py
+    workspace_manager.py         # 允许工作区管理（~/.ggbot/allowed_workspaces.json）
 ```
 
 ## 系统架构框图（真实实现）
 
 ```mermaid
 flowchart TB
-    subgraph L1["用户交互层"]
-        CLI["CLI 入口<br/>command.py"]
-        TUI["TUI 适配<br/>ui/renderers/tui_renderer.py"]
-        API["API 服务<br/>api/server.py"]
+    subgraph L1["接入层"]
+        UI["用户交互入口<br/>CLI / TUI / Web 前端"]
+        SERVER["API 接入与协议分发<br/>api/server.py"]
     end
 
-    subgraph L2["应用编排层"]
-        BOOT["启动装配<br/>app/app_bootstrap.py"]
-        SVC["服务编排<br/>api/services.py"]
-        RT["运行时上下文<br/>AgentRuntime"]
+    subgraph L2["编排层"]
+        BOOT["运行时装配与启动<br/>app/app_bootstrap.py"]
+        SVC["会话/消息/工具服务编排<br/>api/services.py"]
+        SRM["按会话隔离执行上下文与锁<br/>api/session_runtime_manager.py"]
     end
 
-    subgraph L3["核心引擎层"]
-        LOOP["Agent 主循环<br/>runtime/agent_loop.py"]
-        MODEL["模型交互<br/>runtime/model_interaction.py"]
-        TOOLS["工具系统<br/>tools/manager.py + tools/registry.py"]
-        PROMPTS["Prompt 管理<br/>prompts/*"]
-        PERM["权限协调<br/>api/permission_manager.py"]
+    subgraph L3["执行层"]
+        LOOP["Agent 主循环（turn/tool budget）<br/>runtime/agent_loop.py"]
+        MODEL["模型交互与流式事件解析<br/>runtime/model_interaction.py"]
+        TOOLS["工具注册与调用网关<br/>tools/registry.py"]
+        PERM["权限审批协调（阻塞等待/唤醒）<br/>api/permission_manager.py"]
     end
 
-    subgraph L4["基础设施层"]
-        PROVIDER["Provider 适配<br/>providers/litellm_client.py"]
-        TRANS["Transcript<br/>state/transcript.py<br/>会话事件 *.jsonl"]
-        SSTORE["SessionStore<br/>state/session_store.py<br/>会话元数据 sessions.json"]
-        BUS["事件总线<br/>events/event_bus.py"]
-        CFG["配置加载<br/>app/config.py<br/>.env / config.toml"]
+    subgraph L4["存储与基础设施层"]
+        PROVIDER["LLM Provider 适配（LiteLLM）<br/>providers/litellm_client.py"]
+        TRANS["会话事实日志（jsonl）<br/>state/transcript.py"]
+        STORE["会话元数据存储（sessions.json）<br/>state/session_store.py"]
+        CFG["配置加载与覆盖规则<br/>app/config.py"]
+        BUS["全局事件总线（辅助/fallback）<br/>events/event_bus.py"]
     end
 
-    CLI --> BOOT
-    TUI --> RT
-    API --> SVC
-
-    BOOT --> RT
+    UI --> SERVER
+    SERVER --> SVC
+    SERVER --> BOOT
     BOOT --> CFG
-    BOOT --> PROMPTS
-
-    SVC --> RT
-    SVC --> SSTORE
+    SVC --> SRM
+    SVC --> STORE
     SVC --> PERM
 
-    RT --> LOOP
+    SRM --> LOOP
     LOOP --> MODEL
     MODEL --> PROVIDER
     LOOP --> TOOLS
     LOOP --> TRANS
-
     TOOLS --> PERM
-    PERM --> BUS
-    RT --> BUS
+    PERM -. fallback .-> BUS
 ```
 
 > 为保证图面清晰，`history_repair.py`、`transcript_logger.py`、`ToolContext` 等辅助模块未单独展开，保留在文字说明中。
@@ -148,46 +141,45 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    subgraph A["前端接入层"]
-        FE["Web 前端 / 其他客户端"]
-        WS["WebSocket 接入<br/>/ws"]
-        REST["REST 接入<br/>/api/v1/*"]
+    subgraph A["客户端"]
+        FE["Vue / 其他客户端"]
     end
 
-    subgraph B["接入与服务层"]
-        SERVER["APIServer<br/>连接管理 / 命令路由"]
-        SVC["APIService<br/>消息 / 会话 / 工具 / 配置"]
-        RT["AgentRuntime<br/>当前活动会话"]
+    subgraph B["接入层"]
+        WS["/ws command"]
+        SERVER["APIServer"]
     end
 
-    subgraph C["执行能力层"]
-        LOOP["run_query<br/>runtime/agent_loop.py"]
-        TOOL["ToolRegistry<br/>tools/registry.py"]
-        PM["PermissionManager<br/>api/permission_manager.py"]
-        MODEL["Provider Client<br/>providers/litellm_client.py"]
+    subgraph C["服务与执行层"]
+        SVC["APIService"]
+        SRM["SessionRuntimeManager"]
+        LOOP["run_query"]
+        TOOL["ToolRegistry"]
+        PM["PermissionManager"]
     end
 
-    subgraph D["底座层"]
-        BUS["EventBus<br/>events/event_bus.py"]
-        TRANS["Transcript<br/>state/transcript.py"]
-        STORE["SessionStore<br/>state/session_store.py"]
-        CFG["Settings<br/>app/config.py"]
+    subgraph D["基础设施"]
+        MODEL["Provider Client"]
+        TRANS["Transcript"]
+        STORE["SessionStore"]
+        CFG["Settings"]
+        BUS["EventBus fallback"]
     end
 
     FE --> WS
-    FE --> REST
     WS --> SERVER
-    REST --> SERVER
     SERVER --> SVC
-    SVC --> RT
-    LOOP --> MODEL
+    SVC --> SRM
+    SRM --> LOOP
     SVC --> LOOP
     SVC --> TOOL
-    TOOL --> PM
-    SERVER --> BUS
-    LOOP --> TRANS
     SVC --> STORE
     SVC --> CFG
+    LOOP --> MODEL
+    LOOP --> TRANS
+    LOOP --> TOOL
+    TOOL --> PM
+    PM -. no request context .-> BUS
 ```
 
 ## 启动与运行路径
@@ -222,13 +214,15 @@ flowchart TB
 - `client`
 - `system_message`
 
-`switch_runtime_session()` 会替换 `session_id/transcript/messages`，是当前会话切换基础。
+`switch_runtime_session()` 会替换 `session_id/transcript/messages`，是低层会话切换能力；
+API 主链路当前优先通过 `SessionRuntimeManager` 管理会话上下文，不直接改写共享 `runtime` 状态。
 
 ### APIService（`api/services.py`）
 
 服务层能力：
 
 - 会话列表/创建/查询/更新/删除/切换
+- 会话上下文隔离：通过 `SessionRuntimeManager` 按 `session_id` 缓存 `transcript/messages` 与 session lock
 - `send_message`（线程池中调用 `run_query`）
 - `execute_tool`（线程池中调用 `registry.call`）
 - `respond_permission`（对接 `PermissionManager.resolve`）
@@ -238,7 +232,9 @@ flowchart TB
 
 - `request()`：创建待审批请求并阻塞等待
 - `resolve()`：校验连接/会话归属后唤醒等待方
-- 通过全局 `event_bus` 发布 `permission_request/permission_response`
+- 事件发射策略：
+  - 优先写入当前请求的 `transcript` 并走当前请求 `event_callback`（WS 连接级）
+  - 只有缺失请求上下文时才 fallback 到全局 `event_bus`
 
 ## 信令流图（时序）
 
@@ -247,17 +243,12 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     participant FE as Frontend
-    participant WS as APIServer WS
-    participant SVC as APIService / Command Handler
+    participant WS as APIServer
 
     FE->>WS: type=command
-    WS->>SVC: 处理指定 command
-
     alt 命令执行成功
-        SVC-->>WS: 返回 payload
         WS-->>FE: type=response
     else 命令执行失败
-        SVC-->>WS: 抛出异常或校验失败
         WS-->>FE: type=error
     end
 ```
@@ -267,35 +258,23 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant FE as Frontend
-    participant WS as APIServer
+    participant WS as APIServer_WS
     participant SVC as APIService
-    participant LOOP as run_query
-    participant MODEL as perform_model_turn
-    participant TOOL as ToolRegistry
-    participant TS as Transcript
+    participant QRY as run_query
+    participant CORE as Model_Tools_Transcript
 
     FE->>WS: send_message
     WS->>SVC: send_message
-    SVC->>LOOP: 启动 run_query
-    LOOP->>TS: 记录 user message
-    LOOP->>MODEL: 执行模型轮次
-    MODEL-->>LOOP: 输出 delta 或 tool_calls
-    LOOP-->>SVC: 产生 runtime event
-    SVC-->>WS: event_callback
-    WS-->>FE: type=event
+    SVC->>QRY: 启动 run_query
+    QRY->>CORE: 执行模型轮次/工具调用/落盘
 
-    alt 触发工具调用
-        LOOP->>TS: 记录 tool_call
-        LOOP->>TOOL: 执行工具
-        TOOL-->>LOOP: 返回结果
-        LOOP->>TS: 记录 tool_result
-        LOOP-->>SVC: 产生 tool event
+    loop 运行中事件
+        QRY-->>SVC: runtime event
         SVC-->>WS: event_callback
         WS-->>FE: type=event
     end
 
-    LOOP->>TS: 记录 assistant message 和 turn_complete
-    LOOP-->>SVC: 返回 QueryResult
+    QRY-->>SVC: 返回 QueryResult
     SVC-->>WS: 返回 final payload
     WS-->>FE: type=response
 ```
@@ -304,23 +283,22 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant LOOP as shell_run tool
+    participant RT as Tool runtime
     participant PM as PermissionManager
-    participant BUS as EventBus
+    participant SVC as APIService callback/event
     participant WS as APIServer
     participant FE as Frontend
 
-    LOOP->>PM: 发起审批请求
-    PM->>BUS: 发布 permission_request
-    BUS-->>WS: 通知 WS 连接
+    RT->>PM: 发起审批请求
+    PM->>SVC: emit permission_request
+    SVC-->>WS: event_callback
     WS-->>FE: 推送审批事件
     FE->>WS: 提交审批结果
     WS->>PM: 调用 resolve
-    PM-->>LOOP: 唤醒等待中的请求线程
-    LOOP->>PM: request() 结束等待
-    PM->>BUS: 发布 permission_response
-    PM-->>LOOP: 返回允许或拒绝
-    BUS-->>WS: 通知审批结果
+    PM-->>RT: 唤醒等待线程
+    PM->>SVC: emit permission_response
+    PM-->>RT: 返回审批结果
+    SVC-->>WS: event_callback
     WS-->>FE: 推送审批结果事件
 ```
 
@@ -329,17 +307,17 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant FE as Frontend
-    participant WS as APIServer
+    participant WS as APIServer/WS
     participant SVC as APIService
-    participant RT as AgentRuntime
+    participant SRM as SessionRuntimeManager
     participant SS as SessionStore
     participant TS as Transcript
 
     FE->>WS: switch_session
     WS->>SVC: switch_session(session_id)
     SVC->>SS: ensure_saved(old_session)
-    SVC->>RT: switch_runtime_session(session_id)
-    RT->>TS: 打开新 transcript 并加载 messages
+    SVC->>SRM: get_or_create_context(session_id)
+    SRM->>TS: 打开 transcript 并加载 messages
     SVC->>SS: ensure_saved(new_session)
     SVC-->>WS: 返回 current_session_id 和 session
     WS-->>FE: type=response
@@ -355,9 +333,10 @@ sequenceDiagram
 
 ### B. 全局事件总线事件（辅助链路）
 
-- 来源：`permission_manager`、部分 `ui/event_handlers`
+- 来源：无请求上下文时的 `permission_manager` fallback、部分 `ui/event_handlers`
 - 形态：`publish_event(...)` 到 `events/event_bus.py`
-- 消费：WS 订阅转发、`TranscriptLogger` 订阅并写入 transcript
+- 消费：兼容/离线上下文场景的辅助通知链路
+- 现状：API 主链路（`send_message`）不依赖全局总线做 WS 事件推送
 
 ### Transcript（事实源）
 
@@ -403,7 +382,8 @@ sequenceDiagram
 以下是当前实现事实，不是目标态：
 
 - API 模式使用全局 `runtime/APIService`，仍是单进程共享可变状态
-- WS 默认订阅全局事件总线，同时 `send_message` 也会绑定连接级回调，存在双通道并存
+- API 的多会话执行上下文已由 `SessionRuntimeManager` 隔离；但仍是单进程内存态，不跨进程共享
+- WS 事件主链路是请求级 `event_callback` 定向回推，不再默认依赖全局总线订阅
 - 消息主链路已转 WS；部分旧 HTTP 端点以注释形式保留
 - 认证授权尚未完整闭环（当前主要覆盖 shell 权限审批）
 - `ui/` 目前核心是事件渲染适配，不是完整多端 UI 子系统

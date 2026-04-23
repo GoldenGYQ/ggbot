@@ -70,7 +70,7 @@ class _ToolBudgetState:
 
 
 def _extract_thinking_content(content: str) -> tuple[str | None, str]:
-    # Backward-compatible export for tests/importers.
+    # 向后兼容导出，用于测试和导入器。
     return extract_thinking_content(content)
 
 
@@ -104,7 +104,7 @@ def run_query(
     turns = 0
     budget = _ToolBudgetState(tool_limits or ToolLimits())
 
-    # Record turn information to transcript
+    # 记录轮次信息到转录
     transcript.append("turn_info", {
         "max_turns": max_turns,
         "start_turn": 0,
@@ -113,14 +113,14 @@ def run_query(
     while turns < max_turns:
         turns += 1
 
-        # Record current turn to transcript
+        # 记录当前轮次到转录
         transcript.append("turn_update", {
             "current_turn": turns,
             "max_turns": max_turns,
         })
         add_event(runtime_event("turn_update", {"current_turn": turns, "max_turns": max_turns}))
 
-        # Heal any interrupted history before sending to the provider.
+        #修复缺失的工具调用消息
         sanitize_orphan_tool_messages(messages=messages)
         auto_heal_missing_tool_messages(messages=messages, transcript=transcript)
 
@@ -150,8 +150,8 @@ def run_query(
             for event in tool_outcome.events:
                 add_event(event)
 
-    # Record final turn information
-    # Check if we have tool calls from the last assistant message
+        # 记录最终轮次信息到转录    
+        # 检查最后一个助手消息是否有工具调用    
     last_has_tool_calls = False
     for msg in reversed(messages):
         if msg.role == "assistant":
