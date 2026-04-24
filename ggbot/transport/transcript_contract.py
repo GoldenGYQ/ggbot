@@ -9,6 +9,7 @@ TranscriptEventType = Literal[
     "tool_call",
     "tool_result",
     "tool_stream",
+    "provider_chunk",
     "status",
     "provider_error",
     "thinking",

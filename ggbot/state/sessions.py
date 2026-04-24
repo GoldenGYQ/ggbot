@@ -17,11 +17,11 @@ def _short_hash(text: str) -> str:
 
 
 def default_sessions(*, workspace_root: Path, transcript_dir: Path) -> DefaultSessions:
-    """Return stable default session IDs for this workspace.
+    """返回该工作区稳定的默认会话 ID。
 
-    If transcript_dir is inside workspace_root (the default), we use simple names
-    ("chat", "repl"). If transcript_dir is shared across workspaces, we suffix
-    a short hash of workspace_root to avoid collisions.
+            如果 transcript_dir 位于 workspace_root 内部（默认情况），我们使用简单名称
+    （"chat"、"repl"）。如果 transcript_dir 在多个工作区之间共享，我们会附加
+    workspace_root 的短哈希值以避免冲突。
     """
 
     ws = workspace_root.resolve()

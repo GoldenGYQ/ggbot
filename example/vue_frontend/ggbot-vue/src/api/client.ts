@@ -155,6 +155,12 @@ export class GGbotAPI {
     });
   }
 
+  async stopMessageWS(sessionId?: string): Promise<string> {
+    return this.sendWSCommand('stop_message', {
+      session_id: sessionId
+    });
+  }
+
   async sendPermissionResponse(requestId: string, allowed: boolean, sessionId?: string, reason?: string): Promise<string> {
     return this.sendWSCommand('permission_response', {
       request_id: requestId,

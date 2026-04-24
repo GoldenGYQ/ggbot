@@ -14,6 +14,7 @@ DOMAIN_TO_TRANSCRIPT_EVENT_TYPE_MAP: dict[RuntimeEventType, TranscriptEventType]
     "tool_result": "tool_result",
     "assistant_delta": "model_message",
     "assistant_final": "model_message",
+    "provider_chunk": "provider_chunk",
     "thinking": "thinking",
     "plan_update": "status",
     "turn_update": "turn_update",

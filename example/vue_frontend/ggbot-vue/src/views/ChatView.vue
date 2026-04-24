@@ -126,19 +126,35 @@ const handleGGEvent = (event: any) => {
     }
     if (lastMsg) {
       if (!lastMsg.tools) lastMsg.tools = [];
-      lastMsg.tools.push({
-        name: data.name,
-        args: data.arguments,
-        status: 'calling'
-      });
+      const existingTool = lastMsg.tools.find(t => data.id && t.id === data.id);
+      if (existingTool) {
+        existingTool.name = data.name || existingTool.name;
+        existingTool.args = data.arguments ?? existingTool.args;
+        existingTool.raw_arguments = data.raw_arguments ?? existingTool.raw_arguments;
+        existingTool.status = 'calling';
+      } else {
+        lastMsg.tools.push({
+          id: data.id,
+          name: data.name,
+          args: data.arguments,
+          raw_arguments: data.raw_arguments,
+          status: 'calling'
+        });
+      }
     }
   } else if (event_type === 'tool_result') {
     const lastMsg = chatStore.messages[chatStore.messages.length - 1];
     if (lastMsg && lastMsg.role === 'assistant' && lastMsg.tools) {
-      const tool = lastMsg.tools.find(t => t.name === data.name && t.status === 'calling');
+      const tool =
+        (data.id ? lastMsg.tools.find(t => t.id === data.id) : undefined) ||
+        lastMsg.tools.find(t => t.name === data.name && t.status === 'calling');
       if (tool) {
         tool.status = data.error ? 'error' : 'done';
-        tool.result = data.content;
+        if (data.content !== undefined && data.content !== null) {
+          tool.result = data.content;
+        } else if (data.content_len !== undefined) {
+          tool.result = `工具已返回结果（长度: ${data.content_len}）`;
+        }
       }
     }
   } else if (event_type === 'turn_complete') {
@@ -169,6 +185,7 @@ const handleGGEvent = (event: any) => {
         existing.session_id = data.session_id;
       } else {
         lastMsg.tools.push({
+          id: data.id,
           name: data.tool_name,
           args: data.arguments,
           status: 'calling',
@@ -233,6 +250,13 @@ const updateSessionTitleLocally = (sessionId: string, title: string) => {
 };
 
 const handleWSResponse = (event: any) => {
+  if (event.command === 'stop_message') {
+    const payload = event.payload || {};
+    if (payload.success) {
+      chatStore.isTyping = false;
+    }
+    return;
+  }
   if (event.command !== 'send_message') return;
   const commandId = event.id;
   // Do not hard-fail on command id mismatch; ws message order/race may cause
@@ -291,6 +315,23 @@ const sendMessage = async () => {
     console.error('Send message failed:', err);
     markLastAssistantAsError(`❌ 错误: ${String(err)}`);
   }
+};
+
+const stopMessage = async () => {
+  if (!chatStore.isTyping) return;
+  try {
+    await api.stopMessageWS(chatStore.currentSessionId || undefined);
+  } catch (err) {
+    console.error('Stop message failed:', err);
+  }
+};
+
+const sendOrStop = async () => {
+  if (chatStore.isTyping) {
+    await stopMessage();
+    return;
+  }
+  await sendMessage();
 };
 
 const handleKeydown = (e: KeyboardEvent) => {
@@ -378,10 +419,10 @@ watch(() => chatStore.messages.length, scrollToBottom);
           ></textarea>
           <button 
             class="send-btn" 
-            :disabled="!inputMessage.trim() || chatStore.isTyping"
-            @click="sendMessage"
+            :disabled="!chatStore.isTyping && !inputMessage.trim()"
+            @click="sendOrStop"
           >
-            <span v-if="chatStore.isTyping" class="loading">...</span>
+            <span v-if="chatStore.isTyping">■</span>
             <span v-else>↑</span>
           </button>
         </div>

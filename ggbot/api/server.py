@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 STREAMABLE_EVENT_TYPES = {
     "assistant_delta",
     "assistant_final",
+    "provider_chunk",
     "thinking",
     "plan_update",
     "tool_call",
@@ -299,6 +300,10 @@ class APIServer:
         async def get_session(session_id: str):
             return await self._handle_get_session(session_id)
 
+        @self.app.get("/api/v1/sessions/{session_id}/model-io")
+        async def get_session_model_io(session_id: str):
+            return await self._handle_get_session_model_io(session_id)
+
         @self.app.put("/api/v1/sessions/{session_id}")
         async def update_session(session_id: str, request: SessionUpdateRequest):
             return await self._handle_update_session(session_id, request)
@@ -365,6 +370,15 @@ class APIServer:
             # Loop may already be closed during shutdown; dropping late events is acceptable.
             self.logger.debug("WebSocket event dropped because event loop is not available")
 
+    def _schedule_event_broadcast(self, loop: asyncio.AbstractEventLoop, event: RuntimeEvent) -> None:
+        """Schedule websocket broadcast on the websocket loop from any thread."""
+        try:
+            loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(self._broadcast_event(event))
+            )
+        except RuntimeError:
+            self.logger.debug("WebSocket broadcast dropped because event loop is not available")
+
     async def _send_event_to_connection(self, connection_id: str, event: RuntimeEvent):
         """发送事件到指定连接"""
         message = {
@@ -375,6 +389,17 @@ class APIServer:
             "source": event.source
         }
         await self.connection_manager.send_message(connection_id, message)
+
+    async def _broadcast_event(self, event: RuntimeEvent):
+        """广播事件到所有连接"""
+        message = {
+            "type": "event",
+            "event_type": event.type,
+            "data": event.data,
+            "timestamp": time.time(),
+            "source": event.source,
+        }
+        await self.connection_manager.broadcast(message)
 
     async def _handle_client_message(
         self,
@@ -444,7 +469,7 @@ class APIServer:
             if connection_id and event_loop is not None:
                 # Bind runtime events to the initiating websocket connection.
                 def ws_event_callback(event: RuntimeEvent) -> None:
-                    self._schedule_event_delivery(event_loop, connection_id, event)
+                    self._schedule_event_broadcast(event_loop, event)
 
             return await self.api_service.send_message(
                 content,
@@ -454,6 +479,9 @@ class APIServer:
                 event_callback=ws_event_callback,
                 connection_id=connection_id,
             )
+        elif command == "stop_message":
+            session_id = payload.get("session_id")
+            return await self.api_service.stop_message(session_id)
         elif command == "list_sessions":
             return await self.api_service.list_sessions()
         elif command == "get_session":
@@ -607,6 +635,14 @@ class APIServer:
         """处理获取会话详情请求"""
         try:
             return await self.api_service.get_session(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+    @log_exceptions(logger)
+    async def _handle_get_session_model_io(self, session_id: str) -> Dict[str, Any]:
+        """处理获取会话模型原始输入输出请求"""
+        try:
+            return await self.api_service.get_session_model_io(session_id)
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
 

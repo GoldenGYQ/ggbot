@@ -30,6 +30,7 @@ def _default_layers() -> list[PromptLayer]:
                 "- Choose the simplest tool for the job.\n"
                 "- Use `file_read` before editing; preserve existing style.\n"
                 "- Use `shell_stream` for long commands; be cautious with destructive ones.\n"
+                "- When multiple independent lookups are needed (e.g. multiple URLs for `web_fetch`), issue multiple tool calls in the SAME turn.\n"
                 "- Verify outputs before proceeding."
             ),
         ),
@@ -165,6 +166,7 @@ def _default_layers_cn() -> list[PromptLayer]:
                 " 工具选择策略\n"
                 "- 选择能完成任务的最简单工具\n"
                 "- 为复杂工作流按顺序组合工具\n"
+                "- 当存在多个相互独立的查询目标（例如多个 URL 的 `web_fetch`）时，优先在同一轮一次性输出多个工具调用\n"
                 "- 在继续下一步之前验证工具输出"
             ),
         ),

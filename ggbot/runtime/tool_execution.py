@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import traceback
+import threading
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from collections.abc import Callable
 from typing import Protocol
@@ -36,10 +38,23 @@ def execute_tool_call(
     tool_printer: Callable[[str, str], None] | None = None,
     tool_context: ToolContext | None = None,
     budget: ToolBudgetChecker | None = None,
+    emit_tool_call_event: bool = True,
+    interrupt_callback: Callable[[], bool] | None = None,
+    state_lock: threading.Lock | None = None,
 ) -> ToolExecutionOutcome:
     outcome = ToolExecutionOutcome()
     name = tool_call.function.name
     raw_arguments = tool_call.function.arguments or ""
+    lock_ctx = state_lock if state_lock is not None else nullcontext()
+
+    def append_transcript(event_type: str, data: dict) -> None:
+        with lock_ctx:
+            transcript.append(event_type, data)
+
+    def append_tool_message(tool_msg: ChatMessage) -> None:
+        with lock_ctx:
+            messages.append(tool_msg)
+            transcript.append("model_message", tool_msg.model_dump(exclude_none=True))
 
     try:
         args = parse_tool_arguments(raw_arguments)
@@ -51,7 +66,7 @@ def execute_tool_call(
             f"Raw arguments:\n{raw_arguments}\n\n{tb}"
         )
 
-        transcript.append(
+        append_transcript(
             "tool_call",
             {
                 "id": tool_call.id,
@@ -71,49 +86,90 @@ def execute_tool_call(
             tool_call_id=tool_call.id,
             name=name,
         )
-        messages.append(tool_msg)
-        transcript.append("model_message", tool_msg.model_dump(exclude_none=True))
-        transcript.append(
+        append_tool_message(tool_msg)
+        append_transcript(
             "tool_result",
             {
                 "id": tool_call.id,
                 "name": name,
+                "content": tool_msg.content,
                 "content_len": len(tool_msg.content),
                 "error": True,
             },
         )
-        _emit_event(outcome, "tool_call", {
-            "id": tool_call.id,
-            "name": name,
-            "arguments": None,
-            "raw_arguments": raw_arguments,
-            "parse_error": f"{type(e).__name__}: {e}",
-        })
+        if emit_tool_call_event:
+            _emit_event(outcome, "tool_call", {
+                "id": tool_call.id,
+                "name": name,
+                "arguments": None,
+                "raw_arguments": raw_arguments,
+                "parse_error": f"{type(e).__name__}: {e}",
+            })
         _emit_event(outcome, "event", tool_msg.model_dump(exclude_none=True))
         _emit_event(outcome, "tool_result", {
             "id": tool_call.id,
             "name": name,
+            "content": tool_msg.content,
             "content_len": len(tool_msg.content),
             "error": True,
         })
         return outcome
 
-    transcript.append(
+    append_transcript(
         "tool_call",
         {
             "id": tool_call.id,
             "name": name,
             "arguments": args,
+            "raw_arguments": raw_arguments,
         },
     )
-    _emit_event(outcome, "tool_call", {
-        "id": tool_call.id,
-        "name": name,
-        "arguments": args,
-    })
+    if emit_tool_call_event:
+        _emit_event(outcome, "tool_call", {
+            "id": tool_call.id,
+            "name": name,
+            "arguments": args,
+            "raw_arguments": raw_arguments,
+        })
+
+    if interrupt_callback is not None and interrupt_callback():
+        result_text = "Cancelled: interrupted by user request."
+        tool_msg = ChatMessage(
+            role="tool",
+            content=result_text,
+            tool_call_id=tool_call.id,
+            name=name,
+        )
+        append_tool_message(tool_msg)
+        append_transcript(
+            "tool_result",
+            {
+                "id": tool_call.id,
+                "name": name,
+                "content": tool_msg.content,
+                "content_len": len(tool_msg.content),
+                "error": True,
+                "interrupted": True,
+            },
+        )
+        _emit_event(outcome, "event", tool_msg.model_dump(exclude_none=True))
+        _emit_event(
+            outcome,
+            "tool_result",
+            {
+                "id": tool_call.id,
+                "name": name,
+                "content": tool_msg.content,
+                "content_len": len(tool_msg.content),
+                "error": True,
+                "interrupted": True,
+            },
+        )
+        return outcome
 
     if budget is not None:
-        cancel_reason = budget.check_and_record(name=name, args=args)
+        with lock_ctx:
+            cancel_reason = budget.check_and_record(name=name, args=args)
         if cancel_reason is not None:
             result_text = (
                 f"Cancelled: {cancel_reason}.\n"
@@ -129,13 +185,13 @@ def execute_tool_call(
                 tool_call_id=tool_call.id,
                 name=name,
             )
-            messages.append(tool_msg)
-            transcript.append("model_message", tool_msg.model_dump(exclude_none=True))
-            transcript.append(
+            append_tool_message(tool_msg)
+            append_transcript(
                 "tool_result",
                 {
                     "id": tool_call.id,
                     "name": name,
+                    "content": tool_msg.content,
                     "content_len": len(tool_msg.content),
                     "error": True,
                     "budget_exceeded": True,
@@ -145,6 +201,7 @@ def execute_tool_call(
             _emit_event(outcome, "tool_result", {
                 "id": tool_call.id,
                 "name": name,
+                "content": tool_msg.content,
                 "content_len": len(tool_msg.content),
                 "error": True,
                 "budget_exceeded": True,
@@ -169,13 +226,13 @@ def execute_tool_call(
         tool_call_id=tool_call.id,
         name=name,
     )
-    messages.append(tool_msg)
-    transcript.append("model_message", tool_msg.model_dump(exclude_none=True))
-    transcript.append(
+    append_tool_message(tool_msg)
+    append_transcript(
         "tool_result",
         {
             "id": tool_call.id,
             "name": name,
+            "content": tool_msg.content,
             "content_len": len(tool_msg.content),
         },
     )
@@ -183,6 +240,7 @@ def execute_tool_call(
     _emit_event(outcome, "tool_result", {
         "id": tool_call.id,
         "name": name,
+        "content": tool_msg.content,
         "content_len": len(tool_msg.content),
     })
 

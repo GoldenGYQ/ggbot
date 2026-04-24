@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
@@ -114,6 +114,7 @@ RuntimeEventType = Literal[
     "tool_result",
     "assistant_delta",
     "assistant_final",
+    "provider_chunk",
     "thinking",
     "plan_update",
     "turn_update",

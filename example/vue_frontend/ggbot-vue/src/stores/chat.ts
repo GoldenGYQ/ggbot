@@ -9,8 +9,10 @@ export interface Message {
   thinking?: string;
   plan?: { completed: boolean; text: string; tool?: string }[];
   tools?: {
+    id?: string;
     name: string;
     args: any;
+    raw_arguments?: string;
     result?: any;
     status: 'calling' | 'done' | 'error';
     requires_permission?: boolean;

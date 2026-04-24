@@ -89,8 +89,8 @@ const decidePermission = async (tool: any, allowed: boolean) => {
               {{ tool.requires_permission ? '等待权限...' : (tool.status === 'calling' ? '执行中...' : (tool.status === 'done' ? '已完成' : '失败')) }}
             </span>
           </div>
-          <div v-if="tool.args" class="tool-args">
-            <code>{{ JSON.stringify(tool.args) }}</code>
+          <div v-if="tool.args || tool.raw_arguments" class="tool-args">
+            <code>{{ tool.args ? JSON.stringify(tool.args) : tool.raw_arguments }}</code>
           </div>
           <div v-if="tool.requires_permission && tool.request_id" class="permission-actions">
             <button

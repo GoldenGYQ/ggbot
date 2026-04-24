@@ -18,6 +18,7 @@
 - 用户认证与传输分层改造方案：[user_auth_and_transport_split_plan.md](user_auth_and_transport_split_plan.md)
 - 编排与事件流使用指南：[orchestration_guide.md](orchestration_guide.md)
 - 流式传输修复记录：[streaming_fix.md](streaming_fix.md)
+- 模型流式 JSON 与工具调用读取说明：[model_streaming_json.md](model_streaming_json.md)
 - 贡献流程：[contributing.md](contributing.md)
 
 ## 文档分级约定

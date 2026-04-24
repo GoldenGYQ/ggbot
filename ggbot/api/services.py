@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import threading
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Callable
@@ -33,6 +34,7 @@ class APIService:
             self.runtime.settings.resolved_transcript_dir()
         )
         self.active_queries: Dict[str, asyncio.Task] = {}
+        self._stop_signals: Dict[str, threading.Event] = {}
         self.event_buffer: List[Dict[str, Any]] = []
         self.max_event_buffer_size = 1000
         self.runtime_manager = SessionRuntimeManager(runtime)
@@ -181,6 +183,46 @@ class APIService:
                 "created_ms": meta.created_ms,
                 "updated_ms": meta.updated_ms,
             },
+        }
+
+    async def get_session_model_io(self, session_id: str) -> Dict[str, Any]:
+        """获取会话中模型实际输入/输出的原始消息（不做重放拼装）。"""
+        meta = self.session_store.metas.get(session_id)
+        if not meta:
+            defaults = default_sessions(
+                workspace_root=self.runtime.settings.workspace_root,
+                transcript_dir=self.runtime.settings.resolved_transcript_dir()
+            )
+            if session_id in (defaults.chat, defaults.repl, defaults.tui, "api"):
+                self.session_store.ensure_saved(session_id)
+            else:
+                raise ValueError(f"会话不存在: {session_id}")
+
+        transcript_path = self.session_store.transcript_dir / f"{session_id}.jsonl"
+        transcript = Transcript(path=transcript_path)
+        model_io: List[Dict[str, Any]] = []
+
+        for event in transcript.iter_events():
+            if event.get("type") != "model_message":
+                continue
+            data = event.get("data") or {}
+            role = str(data.get("role") or "")
+            if not role:
+                continue
+            direction = "output" if role == "assistant" else "input"
+            model_io.append(
+                {
+                    "ts_ms": int(event.get("ts_ms", 0) or 0),
+                    "direction": direction,
+                    "role": role,
+                    "data": data,
+                }
+            )
+
+        return {
+            "session_id": session_id,
+            "count": len(model_io),
+            "items": model_io,
         }
 
     def _extract_plan_items(self, text: str) -> List[Dict[str, Any]]:
@@ -430,6 +472,8 @@ class APIService:
             if thinking_enabled is None
             else thinking_enabled
         )
+        stop_signal = threading.Event()
+        self._stop_signals[target_session_id] = stop_signal
 
         # 准备工具上下文
         tool_context = ToolContext(
@@ -469,7 +513,15 @@ class APIService:
             )
             # 2. 如果有外部回调，调用它
             if event_callback:
-                event_callback(event)
+                enriched_data = dict(event.data or {})
+                enriched_data["session_id"] = target_session_id
+                event_callback(
+                    RuntimeEvent(
+                        type=event.type,
+                        data=enriched_data,
+                        source=event.source,
+                    )
+                )
 
         permission_manager = get_permission_manager()
         permission_ctx_token = permission_manager.set_request_context(
@@ -500,6 +552,7 @@ class APIService:
                     ),
                     thinking_enabled=effective_thinking_enabled,
                     event_callback=combined_event_callback,
+                    should_stop=stop_signal.is_set,
                 )
 
             # 更新会话统计
@@ -544,6 +597,28 @@ class APIService:
             raise
         finally:
             permission_manager.reset_request_context(permission_ctx_token)
+            current_signal = self._stop_signals.get(target_session_id)
+            if current_signal is stop_signal:
+                self._stop_signals.pop(target_session_id, None)
+
+    async def stop_message(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """请求中断某个会话的当前生成任务。"""
+        target_session_id = session_id or self.current_session_id
+        stop_signal = self._stop_signals.get(target_session_id)
+        if stop_signal is None:
+            return {
+                "success": False,
+                "session_id": target_session_id,
+                "stopped": False,
+                "message": "当前会话没有正在运行的生成任务。",
+            }
+        stop_signal.set()
+        return {
+            "success": True,
+            "session_id": target_session_id,
+            "stopped": True,
+            "message": "已请求中断当前生成任务。",
+        }
 
     async def _generate_title(self, seed: str) -> Optional[str]:
         """生成会话标题"""

@@ -5,7 +5,7 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ..providers.types import ChatCompletionClient, ProviderError
+from ..providers.types import ChatCompletionClient, GenerationInterrupted, ProviderError
 from ..models.runtime_models import RuntimeEvent
 from ..events.runtime_events import runtime_event
 from ..state.transcript import Transcript
@@ -109,71 +109,113 @@ def perform_model_turn(
     stream_printer: Callable[[str], None] | None,
     thinking_enabled: bool,
     event_callback: Callable[[RuntimeEvent], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> ModelTurnOutcome:
     events: list[RuntimeEvent] = []
     accumulated_text = ""
     last_plan_content = ""
+    streamed_thinking = ""
 
-    def add_event(event: RuntimeEvent):
-        events.append(event)
+    def add_event(event: RuntimeEvent, *, include_in_result: bool = True) -> None:
+        if include_in_result:
+            events.append(event)
         if event_callback:
             event_callback(event)
 
+    def handle_provider_error(error: Exception, *, include_traceback: bool) -> ModelTurnOutcome:
+        err_text = f"{type(error).__name__}: {error}"
+        if include_traceback:
+            tb = traceback.format_exc()
+            tb = tb if len(tb) <= 4000 else tb[:4000] + "\n... (traceback truncated)"
+            content = (
+                "Unexpected error while contacting provider.\n\n"
+                f"{err_text}\n\n{tb}"
+            )
+        else:
+            content = (
+                "Provider error (OpenAI-compatible API call failed). "
+                "Fix configuration or retry.\n\n"
+                f"{error}"
+            )
+
+        sys_msg = ChatMessage(role="system", content=content)
+        payload = sys_msg.model_dump(exclude_none=True)
+        messages.append(sys_msg)
+        transcript.append("model_message", payload)
+        transcript.append("provider_error", {"error": err_text})
+        add_event(runtime_event("error", {"error": err_text}))
+        add_event(runtime_event("event", payload))
+        return ModelTurnOutcome(tool_calls=[], should_stop=True, events=events)
+
     def on_delta(text: str) -> None:
-        nonlocal accumulated_text, last_plan_content
+        nonlocal accumulated_text, last_plan_content, streamed_thinking
+        if should_stop is not None and should_stop():
+            raise GenerationInterrupted("Generation interrupted by user request.")
         accumulated_text += text
         
         if stream_printer:
             stream_printer(text)
         
-        if event_callback:
-            # assistant_delta typically doesn't go to transcript/final events
-            # so we only call the callback
-            event_callback(runtime_event("assistant_delta", {"delta": text}))
-            
-            # Real-time plan parsing
-            if "<plan>" in accumulated_text and "</plan>" in accumulated_text:
-                plan_match = re.search(r"<plan>(.*?)</plan>", accumulated_text, re.DOTALL)
-                if plan_match:
-                    plan_content = plan_match.group(1).strip()
-                    if plan_content != last_plan_content:
-                        last_plan_content = plan_content
-                        plan_items = parse_plan_items(plan_content)
-                        event_callback(runtime_event("plan_update", {"plan": plan_items}))
+        # assistant_delta / plan_update are UI streaming signals:
+        # emit to callback, but don't include in final per-turn result events.
+        add_event(runtime_event("assistant_delta", {"delta": text}), include_in_result=False)
+
+        if "<plan>" in accumulated_text and "</plan>" in accumulated_text:
+            plan_match = re.search(r"<plan>(.*?)</plan>", accumulated_text, re.DOTALL)
+            if plan_match:
+                plan_content = plan_match.group(1).strip()
+                if plan_content != last_plan_content:
+                    last_plan_content = plan_content
+                    plan_items = parse_plan_items(plan_content)
+                    add_event(runtime_event("plan_update", {"plan": plan_items}), include_in_result=False)
+
+        if thinking_enabled and "<thinking>" in accumulated_text and "</thinking>" in accumulated_text:
+            thinking_match = re.search(r"<thinking>(.*?)</thinking>", accumulated_text, re.DOTALL)
+            if thinking_match:
+                thinking_text = thinking_match.group(1).strip()
+                if thinking_text and thinking_text != streamed_thinking:
+                    if thinking_text.startswith(streamed_thinking):
+                        delta = thinking_text[len(streamed_thinking):]
+                    else:
+                        delta = thinking_text
+                    streamed_thinking = thinking_text
+                    if delta:
+                        add_event(
+                            runtime_event(
+                                "thinking",
+                                {
+                                    "thinking": delta,
+                                    "content_len": len(delta),
+                                    "streaming": True,
+                                },
+                            ),
+                            include_in_result=False,
+                        )
+
+    def on_raw_chunk(chunk: dict[str, Any]) -> None:
+        transcript.append("provider_chunk", {"chunk": chunk})
+        add_event(
+            runtime_event("provider_chunk", {"chunk": chunk}),
+            include_in_result=False,
+        )
 
     try:
-        assistant_final = client.stream_and_collect(messages=messages, tools=tools, on_text_delta=on_delta)
+        assistant_final = client.stream_and_collect(
+            messages=messages,
+            tools=tools,
+            on_text_delta=on_delta,
+            on_raw_chunk=on_raw_chunk,
+            interrupt_callback=should_stop,
+        )
+    except GenerationInterrupted:
+        interrupt_payload = {"message": "Generation interrupted by user request."}
+        transcript.append("status", interrupt_payload)
+        add_event(runtime_event("status", interrupt_payload))
+        return ModelTurnOutcome(tool_calls=[], should_stop=True, events=events)
     except ProviderError as e:
-        sys_msg = ChatMessage(
-            role="system",
-            content=(
-                "Provider error (OpenAI-compatible API call failed). "
-                "Fix configuration or retry.\n\n"
-                f"{e}"
-            ),
-        )
-        messages.append(sys_msg)
-        transcript.append("model_message", sys_msg.model_dump(exclude_none=True))
-        transcript.append("provider_error", {"error": f"{type(e).__name__}: {e}"})
-        add_event(runtime_event("error", {"error": f"{type(e).__name__}: {e}"}))
-        add_event(runtime_event("event", sys_msg.model_dump(exclude_none=True)))
-        return ModelTurnOutcome(tool_calls=[], should_stop=True, events=events)
+        return handle_provider_error(e, include_traceback=False)
     except Exception as e:
-        tb = traceback.format_exc()
-        tb = tb if len(tb) <= 4000 else tb[:4000] + "\n…(traceback truncated)"
-        sys_msg = ChatMessage(
-            role="system",
-            content=(
-                "Unexpected error while contacting provider.\n\n"
-                f"{type(e).__name__}: {e}\n\n{tb}"
-            ),
-        )
-        messages.append(sys_msg)
-        transcript.append("model_message", sys_msg.model_dump(exclude_none=True))
-        transcript.append("provider_error", {"error": f"{type(e).__name__}: {e}"})
-        add_event(runtime_event("error", {"error": f"{type(e).__name__}: {e}"}))
-        add_event(runtime_event("event", sys_msg.model_dump(exclude_none=True)))
-        return ModelTurnOutcome(tool_calls=[], should_stop=True, events=events)
+        return handle_provider_error(e, include_traceback=True)
 
     raw_content = assistant_final.content or ""
     final_content = raw_content
@@ -181,6 +223,11 @@ def perform_model_turn(
     if thinking_enabled and final_content:
         thinking_content, final_content = extract_thinking_content(final_content)
         if thinking_content:
+            thinking_payload = {
+                "thinking": thinking_content,
+                "content_len": len(thinking_content),
+                "raw_content": raw_content,
+            }
             thinking_msg = ChatMessage(
                 role="thinking",
                 content=thinking_content,
@@ -189,25 +236,22 @@ def perform_model_turn(
             )
             messages.append(thinking_msg)
             transcript.append("model_message", thinking_msg.model_dump(exclude_none=True))
-            transcript.append(
-                "thinking",
-                {
-                    "thinking": thinking_content,
-                    "content_len": len(thinking_content),
-                    "raw_content": raw_content,
-                },
-            )
+            transcript.append("thinking", thinking_payload)
             add_event(runtime_event("event", thinking_msg.model_dump(exclude_none=True)))
-            add_event(
-                runtime_event(
-                    "thinking",
-                    {
-                        "thinking": thinking_content,
-                        "content_len": len(thinking_content),
-                        "raw_content": raw_content,
-                    },
+            remaining_thinking = thinking_content
+            if streamed_thinking and thinking_content.startswith(streamed_thinking):
+                remaining_thinking = thinking_content[len(streamed_thinking):]
+            if remaining_thinking:
+                add_event(
+                    runtime_event(
+                        "thinking",
+                        {
+                            "thinking": remaining_thinking,
+                            "content_len": len(remaining_thinking),
+                            "raw_content": raw_content,
+                        },
+                    )
                 )
-            )
 
     assistant_msg = ChatMessage(
         role="assistant",

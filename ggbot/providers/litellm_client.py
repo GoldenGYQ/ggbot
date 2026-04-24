@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ..models.protocol_models import AssistantFinal, ChatMessage, StreamToolCallDelta, ToolCall, ToolFunction
-from .types import ProviderError
+from .types import GenerationInterrupted, ProviderError
 
 
 def _to_dict(obj: Any) -> dict[str, Any]:
@@ -23,7 +23,9 @@ def _to_dict(obj: Any) -> dict[str, Any]:
             pass
     return {}
 
-
+'''
+合并工具调用增量
+'''
 def _merge_tool_call_delta(tool_calls: dict[int, ToolCall], delta: StreamToolCallDelta) -> None:
     idx = delta.index
     if idx not in tool_calls:
@@ -40,7 +42,9 @@ def _merge_tool_call_delta(tool_calls: dict[int, ToolCall], delta: StreamToolCal
     if delta.arguments_fragment:
         current.function.arguments += delta.arguments_fragment
 
-
+'''
+LiteLLM客户端类
+'''
 class LiteLLMClient:
     """A thin adapter that uses LiteLLM to call many providers via a unified API.
 
@@ -75,6 +79,8 @@ class LiteLLMClient:
         messages: list[ChatMessage],
         tools: list[dict[str, Any]] | None,
         on_text_delta: Callable[[str], None] | None = None,
+        on_raw_chunk: Callable[[dict[str, Any]], None] | None = None,
+        interrupt_callback: Callable[[], bool] | None = None,
     ) -> AssistantFinal:
         # Import lazily so users who don't use this provider don't pay import cost.
         import litellm  # type: ignore
@@ -109,7 +115,11 @@ class LiteLLMClient:
             )
 
             for chunk in stream:
+                if interrupt_callback is not None and interrupt_callback():
+                    raise GenerationInterrupted("Generation interrupted by user request.")
                 obj = _to_dict(chunk)
+                if on_raw_chunk is not None:
+                    on_raw_chunk(obj)
                 choices = obj.get("choices") or []
                 if not choices:
                     continue
@@ -123,9 +133,10 @@ class LiteLLMClient:
                     if on_text_delta is not None:
                         on_text_delta(text_s)
                     content_parts.append(text_s)
-
+                # 处理工具调用增量
                 tc_list = delta.get("tool_calls") or []
-                for tc in tc_list:
+                for i,tc in enumerate(tc_list):
+                    # print(f"本chunk第{i}个tc: {tc}")
                     try:
                         index = int(tc.get("index", 0))
                     except Exception:
@@ -146,11 +157,12 @@ class LiteLLMClient:
                     )
 
                 finish_reason = c0.get("finish_reason")
+                print(f"本chunkfinish_reason: {finish_reason}")
                 if finish_reason:
                     # Common values: "stop", "tool_calls", "length".
                     # We break once finish is signaled after processing any final deltas.
                     break
-        except ProviderError:
+        except (ProviderError, GenerationInterrupted):
             raise
         except Exception as e:
             raise ProviderError(f"LiteLLM provider call failed: {type(e).__name__}: {e}") from e
