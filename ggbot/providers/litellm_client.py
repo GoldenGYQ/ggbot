@@ -157,7 +157,7 @@ class LiteLLMClient:
                     )
 
                 finish_reason = c0.get("finish_reason")
-                print(f"本chunkfinish_reason: {finish_reason}")
+                # print(f"本chunkfinish_reason: {finish_reason}")
                 if finish_reason:
                     # Common values: "stop", "tool_calls", "length".
                     # We break once finish is signaled after processing any final deltas.

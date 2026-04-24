@@ -769,10 +769,12 @@ def tui(
 ):
     """Full-screen terminal UI (Textual)."""
     _maybe_run_init_guide(workspace_root=workspace_root, command_name="tui")
-
     from example.tui_frontend.tui import run_tui
 
-    run_tui(resume=resume, workspace_root=workspace_root)
+    run_tui(
+        resume=resume,
+        workspace_root=workspace_root,
+    )
 
 
 @app.command("log")

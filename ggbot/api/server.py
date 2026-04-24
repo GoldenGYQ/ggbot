@@ -370,15 +370,6 @@ class APIServer:
             # Loop may already be closed during shutdown; dropping late events is acceptable.
             self.logger.debug("WebSocket event dropped because event loop is not available")
 
-    def _schedule_event_broadcast(self, loop: asyncio.AbstractEventLoop, event: RuntimeEvent) -> None:
-        """Schedule websocket broadcast on the websocket loop from any thread."""
-        try:
-            loop.call_soon_threadsafe(
-                lambda: asyncio.create_task(self._broadcast_event(event))
-            )
-        except RuntimeError:
-            self.logger.debug("WebSocket broadcast dropped because event loop is not available")
-
     async def _send_event_to_connection(self, connection_id: str, event: RuntimeEvent):
         """发送事件到指定连接"""
         message = {
@@ -389,17 +380,6 @@ class APIServer:
             "source": event.source
         }
         await self.connection_manager.send_message(connection_id, message)
-
-    async def _broadcast_event(self, event: RuntimeEvent):
-        """广播事件到所有连接"""
-        message = {
-            "type": "event",
-            "event_type": event.type,
-            "data": event.data,
-            "timestamp": time.time(),
-            "source": event.source,
-        }
-        await self.connection_manager.broadcast(message)
 
     async def _handle_client_message(
         self,
@@ -469,7 +449,7 @@ class APIServer:
             if connection_id and event_loop is not None:
                 # Bind runtime events to the initiating websocket connection.
                 def ws_event_callback(event: RuntimeEvent) -> None:
-                    self._schedule_event_broadcast(event_loop, event)
+                    self._schedule_event_delivery(event_loop, connection_id, event)
 
             return await self.api_service.send_message(
                 content,

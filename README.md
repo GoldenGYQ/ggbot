@@ -1,13 +1,18 @@
-# GGBot (Python MVP)
+# GGbot
 
-A minimal, Claude-Code-inspired CLI agent.
+一个以 Python 为核心的本地 Agent Runtime。  
+它把「模型对话能力」和「工程执行能力（文件、Shell、网页等工具）」放在同一条运行时主链路里，支持：
 
-文档分级：A（只给项目成员｜内部）
-## Quick Start (uv, recommended)
+- 本地交互入口：CLI / REPL / TUI（终端内直接使用）
+- 对外服务接口：FastAPI + WebSocket（供前端/业务系统接入）
+- transcript（JSONL）可追溯日志
+- 会话级上下文与权限审批（重点针对 `shell_run`）
 
-From repo root:
+## 3 分钟本地启动
 
-### Windows (PowerShell)
+### 1) 安装依赖（推荐 `uv`）
+
+Windows（PowerShell）：
 
 ```powershell
 uv venv .venv
@@ -15,14 +20,7 @@ uv venv .venv
 uv sync --extra dev
 ```
 
-If activation is blocked by execution policy:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
-```
-
-### macOS / Linux (bash/zsh)
+macOS / Linux：
 
 ```bash
 uv venv .venv
@@ -30,85 +28,9 @@ source .venv/bin/activate
 uv sync --extra dev
 ```
 
-Run commands via `uv run` (or run directly after activation):
+### 2) 配置模型（最小）
 
-- `uv run ggbot --help`
-- `uv run ggbot --debug repl`
-- `uv run ggbot chat "hello"`
-- `uv run ggbot repl`
-- `uv run ggbot tui`
-- `uv run pytest`
-
-## Install (pip editable, alternative)
-
-From repo root:
-
-- `python -m pip install -e .[dev]`
-
-## Run
-
-- `ggbot --help`
-- `ggbot --debug repl` (pretty tracebacks)
-- `ggbot chat "hello"` 
-- `ggbot repl`
-- `ggbot tui`
-- `ggbot log` (view recent transcript events)
-- `ggbot log --follow` (follow transcript events in terminal)
-
-In REPL, you can create project folders inside the current workspace via:
-
-- `/workspace <path>`
-- `/workspace_ls [path]` (list files/dirs under workspace, default current root)
-
-In TUI:
-
-- `/clear` asks for confirmation, then clears current session history.
-- `/clear-screen` only clears visible screen output.
-
-Log viewer examples:
-
-GGbot uses transcript JSONL as the single runtime log source.
-
-- `ggbot log` (open the most recent session log)
-- `ggbot log --session repl`
-- `ggbot log --tail 100`
-- `ggbot log --follow` (real-time monitoring)
-- `ggbot log --follow --events` (show runtime events like tool_call/tool_result)
-
-## Env
-
-GGBot 会按优先级读取配置：
-
-1) 真实环境变量
-2) dotenv 文件：`./.env`、`./.ggbot/.env`
-3) TOML 配置：`./.ggbot/config.toml`
-
-最常用的是把 Key 放到 `.env` 或 `config.toml`。
-
-仓库里也提供了一个可直接复制的示例文件：`./.env.example`。
-
-### 环境变量
-
-- `OPENAI_MODEL`
-	- 作为 LiteLLM 的 `model` 默认值（例如 OpenAI、Anthropic、Gemini、各类网关/代理等）。
-	- 具体模型命名规则以 LiteLLM 文档为准（不同 provider 的前缀/命名不同）。
-- `OPENAI_API_KEY`
-	- 可选：作为 LiteLLM 的 `api_key` 默认值（对 OpenAI / OpenAI-compatible 网关通常需要）。
-	- 如果你使用的是其他 provider（例如 Anthropic/Gemini/Azure 等），通常需要设置该 provider 对应的环境变量（由 LiteLLM 读取），此时可以不设置 `OPENAI_API_KEY`。
-- `OPENAI_BASE_URL`（默认：`https://api.openai.com/v1`）
-	- 可选：作为 LiteLLM 的 `api_base` 默认值（常用于 OpenAI-compatible 网关）。
-- `GGBOT_WORKSPACE_ROOT`（默认：当前工作目录）
-
-Transcript:
-- `GGBOT_TRANSCRIPT_DIR` (default: `.ggbot/transcripts` under workspace)
-
-Prompt Engineering:
-- `GGBOT_PROMPT_PROFILE` (default: `default`)
-- `GGBOT_PROMPT_DIR` (default: `./.ggbot/prompts`)
-
-### 例子：.env
-
-在仓库根目录创建 `./.env`：
+在仓库根目录创建 `.env`：
 
 （你也可以直接从 `./.env.example` 复制一份。）
 
@@ -117,40 +39,99 @@ OPENAI_MODEL=gpt-4.1-mini
 OPENAI_API_KEY=sk-xxxx
 ```
 
-### 例子：.ggbot/config.toml
+### 3) 运行
 
-创建 `./.ggbot/config.toml`：
-
-```toml
-[openai]
-# 这里的 key 名沿用历史/兼容命名：作为 LiteLLM 的默认 model/api_base/api_key。
-# 仅当你使用 OpenAI/OpenAI-compatible 网关时通常需要 api_key/base_url。
-api_key = "sk-xxxx"
-base_url = "https://api.openai.com/v1"
-model = "gpt-4.1-mini"
-
-[ggbot]
-max_turns = 8
-
-[prompt]
-# profile file: ./.ggbot/prompts/<profile>.md
-profile = "default"
-# optional custom prompt directory
-dir = "./.ggbot/prompts"
-
-[shell]
-confirm = true
-timeout_ms = 30000
-max_output_chars = 30000
+```bash
+uv run ggbot --help
+uv run ggbot repl
+uv run ggbot tui
+uv run ggbot chat "你好"
 ```
 
-## Docs (internal)
+## 本地 API 启动
 
-- Start here: [doc/README.md](doc/README.md)
-- Architecture: [doc/architecture.md](doc/architecture.md)
-- Development: [doc/development.md](doc/development.md)
-- Configuration & Ops: [doc/configuration.md](doc/configuration.md)
-- Security: [doc/security.md](doc/security.md)
-- Troubleshooting: [doc/troubleshooting.md](doc/troubleshooting.md)
-- Contributing: [doc/contributing.md](doc/contributing.md)
-- Testing quickref: [doc/tests.md](doc/tests.md)
+```bash
+uv run ggbot api --host 127.0.0.1 --port 8000
+```
+
+启动后可访问：
+
+- OpenAPI 文档：`http://127.0.0.1:8000/docs`
+- 健康检查：`http://127.0.0.1:8000/api/v1/health`
+- WebSocket：`ws://127.0.0.1:8000/ws`
+
+## API 最小调用示例
+
+当前主链路是 **WebSocket 命令式调用**（`send_message`）。  
+`POST /api/v1/messages` 已在代码中标记为 deprecated 并关闭。
+
+### WebSocket：发送消息命令
+
+发送：
+
+```json
+{
+  "type": "command",
+  "id": "cmd_1",
+  "command": "send_message",
+  "payload": {
+    "content": "帮我列一个今天的开发计划",
+    "max_turns": 4,
+    "thinking_enabled": false
+  }
+}
+```
+
+你会收到两类消息：
+
+- `type=event`：过程事件（`assistant_delta` / `tool_call` / `tool_result` / `permission_request` 等）
+- `type=response`：命令完成响应
+
+### REST：可用于管理接口
+
+```bash
+curl http://127.0.0.1:8000/api/v1/sessions
+curl http://127.0.0.1:8000/api/v1/tools
+```
+
+## 运行时日志（Transcript）
+
+GGbot 把 transcript 作为统一事实源（JSONL）：
+
+- 默认目录：`<workspace>/.ggbot/transcripts/`
+- 每个会话一个文件：`<session_id>.jsonl`
+- 可用命令查看：
+
+```bash
+uv run ggbot log
+uv run ggbot log --follow
+uv run ggbot log --follow --events
+```
+
+## 关键环境变量
+
+- `OPENAI_MODEL`：模型名（LiteLLM `model`）
+- `OPENAI_API_KEY`：模型 API Key
+- `OPENAI_BASE_URL`：模型 API 地址（默认 `https://api.openai.com/v1`）
+- `GGBOT_WORKSPACE_ROOT`：工作区根目录
+- `GGBOT_TRANSCRIPT_DIR`：transcript 存储目录
+- `GGBOT_PROMPT_PROFILE`：提示词 profile
+- `GGBOT_PROMPT_DIR`：提示词目录
+
+## 文档导航（先看这几个）
+
+- 总览索引：[doc/README.md](doc/README.md)
+- API 使用手册：[doc/API_README.md](doc/API_README.md)
+- 架构设计：[doc/architecture.md](doc/architecture.md)
+- 开发指南：[doc/development.md](doc/development.md)
+- 配置说明：[doc/configuration.md](doc/configuration.md)
+- 当前问题清单：[doc/当前问题.md](doc/当前问题.md)
+- 贡献说明：[doc/contributing.md](doc/contributing.md)
+
+## 安全提示（当前状态）
+
+当前版本默认面向本地开发环境，生产部署前请先完成：
+
+- API 鉴权与授权
+- CORS 收敛
+- 高风险工具（如 `shell_run`）默认拒绝未认证请求

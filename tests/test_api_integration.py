@@ -234,6 +234,123 @@ class TestAPIServer:
             assert response["type"] == "error"
             assert "API错误" in response["message"]
 
+    @pytest.mark.asyncio
+    async def test_send_message_events_bound_to_origin_connection(self, api_server, mock_runtime):
+        """测试 send_message 产生的实时事件只投递给发起连接。"""
+        delivered: list[tuple[str, str]] = []
+
+        class ImmediateLoop:
+            def call_soon_threadsafe(self, cb):
+                cb()
+
+        async def fake_send_event_to_connection(connection_id: str, event):
+            delivered.append((connection_id, str(event.type)))
+
+        async def fake_send_message(*args, **kwargs):
+            from ggbot.events.runtime_events import runtime_event
+
+            event_callback = kwargs.get("event_callback")
+            assert callable(event_callback)
+            event_callback(runtime_event("provider_chunk", {"delta": "a"}))
+            event_callback(runtime_event("tool_call", {"name": "shell_run"}))
+            return {
+                "success": True,
+                "session_id": mock_runtime.session_id,
+                "turn_number": 1,
+                "turns_used": 1,
+                "events": [],
+                "final_response": "",
+            }
+
+        with (
+            patch.object(api_server.api_service, "send_message", side_effect=fake_send_message),
+            patch.object(api_server, "_send_event_to_connection", side_effect=fake_send_event_to_connection),
+        ):
+            result = await api_server._handle_command(
+                "send_message",
+                {"content": "hi", "max_turns": 1},
+                connection_id="conn-origin",
+                event_loop=ImmediateLoop(),
+            )
+
+        import asyncio
+        await asyncio.sleep(0)
+        assert result["success"] is True
+        assert delivered == [
+            ("conn-origin", "provider_chunk"),
+            ("conn-origin", "tool_call"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_permission_response_rejects_non_owner_connection(self, api_server):
+        """测试 permission_response 由非 owner 连接提交时会被拒绝。"""
+        manager = get_permission_manager()
+        emitted = []
+        result_holder: dict[str, str | bool] = {}
+
+        def worker() -> None:
+            token = manager.set_request_context(
+                connection_id="conn-owner",
+                session_id="session-owner",
+                event_callback=lambda event: emitted.append(event),
+                transcript=None,
+            )
+            try:
+                allowed, reason, request_id = manager.request(
+                    tool_name="shell_run",
+                    arguments={"command": "echo hi"},
+                    timeout_s=1.0,
+                )
+                result_holder["allowed"] = allowed
+                result_holder["reason"] = reason
+                result_holder["request_id"] = request_id
+            finally:
+                manager.reset_request_context(token)
+
+        import threading
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+
+        request_id = None
+        deadline = time.time() + 1.0
+        while time.time() < deadline:
+            for event in emitted:
+                if event.type == "permission_request":
+                    request_id = str(event.data["request_id"])
+                    break
+            if request_id:
+                break
+            time.sleep(0.01)
+
+        assert request_id is not None
+
+        rejected = await api_server._handle_command(
+            "permission_response",
+            {
+                "request_id": request_id,
+                "allowed": True,
+                "reason": "attacker",
+                "session_id": "session-owner",
+            },
+            connection_id="conn-attacker",
+        )
+        assert rejected["success"] is False
+
+        accepted = await api_server._handle_command(
+            "permission_response",
+            {
+                "request_id": request_id,
+                "allowed": True,
+                "reason": "owner approved",
+                "session_id": "session-owner",
+            },
+            connection_id="conn-owner",
+        )
+        assert accepted["success"] is True
+        thread.join(timeout=2.0)
+        assert result_holder.get("allowed") is True
+
     def test_get_recent_events(self, test_client):
         """测试获取最近事件"""
         response = test_client.get("/api/v1/events?limit=10")

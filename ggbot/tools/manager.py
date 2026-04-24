@@ -11,7 +11,6 @@ from .registry import ToolRegistry
 from .shell_tool import make_shell_tool
 from .shell_stream_tool import make_shell_stream_tool
 from .status_tool import make_status_tool
-from .http_tools import make_http_tools
 from .workspace_tools import make_workspace_tools
 from .time_tools import make_time_tools
 from .web import make_web_tools
@@ -96,9 +95,6 @@ class ToolManager:
             workspace_root=self._settings.workspace_root
         )
 
-        # HTTP工具
-        http_get, duckduckgo_search, news_search = make_http_tools()
-
         # 时间工具
         get_current_time, get_date_info, get_timezone_list = make_time_tools()
 
@@ -118,9 +114,6 @@ class ToolManager:
                 shell_tail,
                 shell_kill,
                 status_update,
-                http_get,
-                duckduckgo_search,
-                news_search,
                 get_current_time,
                 get_date_info,
                 get_timezone_list,

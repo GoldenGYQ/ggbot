@@ -2,29 +2,34 @@
 
 **文档分级：A（只给项目成员｜内部）**
 
-这套文档面向两类读者：
-- 使用者：想把 GGbot 跑起来、能复盘一轮对话
-- 维护者：要新增/修改工具、改 query loop、改 provider、保证 transcript 兼容
+## 你应该先看什么
 
-## 入口
+- 如果你是第一次接触项目：先看 [../README.md](../README.md)
+- 如果你要接 API 做业务：看 [API_README.md](API_README.md)
+- 如果你要理解代码结构和主链路：看 [architecture.md](architecture.md)
+- 如果你要开始改代码：看 [development.md](development.md)
 
-- 项目入口（先读这个）：[README.md](../README.md)
-- 架构与数据流：[architecture.md](architecture.md)
-- 通用 Agent 迁移映射：[agent_migration_map.md](agent_migration_map.md)
-- 开发指南：[development.md](development.md)
-- 配置与运行（LiteLLM / 环境变量 / transcript）：[configuration.md](configuration.md)
-- 安全与权限边界（workspace sandbox、shell/network 风险）：[security.md](security.md)
-- 当前问题与审计结论（高危/中危/冗余）：[当前问题.md](当前问题.md)
-- 用户认证与传输分层改造方案：[user_auth_and_transport_split_plan.md](user_auth_and_transport_split_plan.md)
-- 编排与事件流使用指南：[orchestration_guide.md](orchestration_guide.md)
-- 流式传输修复记录：[streaming_fix.md](streaming_fix.md)
-- 模型流式 JSON 与工具调用读取说明：[model_streaming_json.md](model_streaming_json.md)
-- 贡献流程：[contributing.md](contributing.md)
+## 按目标阅读
 
-## 文档分级约定
+- 本地部署与配置：
+  - [../README.md](../README.md)
+  - [configuration.md](configuration.md)
+- API 集成（REST / WebSocket / 事件）：
+  - [API_README.md](API_README.md)
+- 架构理解（层级、主链路、设计取舍）：
+  - [architecture.md](architecture.md)
+- 当前风险与待办：
+  - [当前问题.md](当前问题.md)
+- 开发协作：
+  - [development.md](development.md)
+  - [contributing.md](contributing.md)
 
-- A：只给项目成员（内部）
-- B：可给公司内部相关团队（默认不含密钥/敏感路径）
-- C：可公开（对外 README/示例，不包含内部细节）
+## 文档维护原则
 
-当前仓库内 `doc/` 目录默认按 A 编写（除非文件头显式标注为 B/C）。
+- 只写“当前代码已实现”的事实，不写目标态幻想。
+- 路径、函数名、类名优先与代码一致（如 `AgentRuntime`、`run_query()`、`Transcript`）。
+- 架构图和流程图优先中文描述，关键符号保留英文名便于跳代码。
+- 行为变化必须同步更新至少三处：
+  - `README.md`
+  - 对应 `doc/*.md`
+  - `tests/`（有行为变化必须有测试）

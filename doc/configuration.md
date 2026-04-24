@@ -11,7 +11,7 @@ GGbot 按优先级读取配置：
 3) TOML：`./.ggbot/config.toml`（只填“未被 env 设置”的值）
 4) 代码默认值
 
-对应实现：`ggbot/core/config.py`。
+对应实现：`ggbot/app/config.py`。
 
 ## LLM / LiteLLM
 
@@ -67,7 +67,7 @@ max_output_chars = 30000
 ## Workspace Root（沙箱根目录）
 
 - `GGBOT_WORKSPACE_ROOT`：默认当前工作目录
-- 所有文件工具与 shell 工具都必须遵守 workspace sandbox（见 `ggbot/core/permissions.py`）
+- 所有文件工具与 shell 工具都必须遵守 workspace sandbox（见 `ggbot/workspace/permissions.py`）
 
 建议：开发时把 workspace root 指向一个专用目录，避免误操作。
 

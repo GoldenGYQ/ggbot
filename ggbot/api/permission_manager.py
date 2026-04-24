@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from typing import Any
 from collections.abc import Callable
 
-from ..events.event_bus import publish_event
 from ..models.runtime_models import RuntimeEvent
 from ..events.runtime_events import runtime_event_to_transcript_type
 from ..state.transcript import Transcript
@@ -80,9 +79,6 @@ class PermissionManager:
 
         if callable(callback):
             callback(event)
-            return
-
-        publish_event(event)
 
     def request(
         self,

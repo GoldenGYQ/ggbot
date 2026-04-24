@@ -30,11 +30,9 @@ from ggbot.events.runtime_events import consume_runtime_events
 from ggbot.state.session_store import SessionStore
 from ggbot.models.protocol_models import ChatMessage
 from ggbot.models.runtime_models import RuntimeEvent, RuntimeEventType, SessionState, PermissionDecision
-from ggbot.events.event_bus import EventBus
-from ggbot.events.event_handlers.base_handler import BaseEventHandler, create_base_event_handler
 from ggbot.tools.context import ToolContext
 from .pets import PetBones, Species, list_species, render_sprite
-from ggbot.ui.renderers.tui_renderer import TuiEventHandler, create_tui_renderer
+from ggbot.ui.tui_renderer import create_tui_renderer
 
 
 def _new_session_id() -> str:
@@ -137,72 +135,14 @@ class GGbotTui(App[None]):
         # Current conversation turn tracking
         self._current_conversation_turn: int = 0
         self._resource_status: str = "CPU:0.0s MEM:0.0MB"
-        self._event_bus = EventBus()
-        # Event handling with new architecture
-        self._event_handler = create_base_event_handler(event_bus=self._event_bus)  # 业务逻辑处理器
-        self._tui_renderer = create_tui_renderer(self, event_bus=self._event_bus)     # UI渲染器
+        self._tui_renderer = create_tui_renderer(self)
         self._debug_events: bool = False  # 设置为 True 可以调试事件流
+        self._tool_call_count: int = 0
         # Permission prompt tracking
         self._showing_permission_prompt: bool = False
 
-        # 自定义事件监听器（示例）
-        self._custom_listeners: list = []
-        self._setup_custom_event_listeners()
-
-    def _setup_custom_event_listeners(self):
-        """设置自定义事件监听器（示例）"""
-        # 示例1：监听所有事件并记录（调试用）
-        if self._debug_events:
-            def debug_listener(event: RuntimeEvent):
-                def log():
-                    self.query_one(RichLog).write(f"[debug:{event.type}]")
-                self.call_from_thread(log)
-
-            sub = self._event_bus.subscribe(debug_listener)
-            self._custom_listeners.append(sub)
-
-        # 示例2：监听工具调用并统计
-        tool_call_count = 0
-
-        def tool_call_listener(event: RuntimeEvent):
-            nonlocal tool_call_count
-            if event.type == "tool_call":
-                tool_call_count += 1
-                def update_status():
-                    # 在状态栏显示工具调用计数
-                    self._push_status_update(f"工具调用: {tool_call_count}")
-                    self._render_top_right()
-                self.call_from_thread(update_status)
-
-        sub = self._event_bus.subscribe(tool_call_listener, "tool_call")
-        self._custom_listeners.append(sub)
-
-        # 示例3：监听错误事件并特殊处理
-        def error_listener(event: RuntimeEvent):
-            if event.type == "error":
-                error_msg = event.data.get("error", "Unknown error")
-                def show_error():
-                    # 在日志中高亮显示错误
-                    from rich.text import Text
-                    self.query_one(RichLog).write(Text(f"❌ 错误: {error_msg}", style="bold red"))
-                    # 更新状态
-                    self._push_status_update(f"错误: {error_msg[:30]}...")
-                    self._render_status()
-                self.call_from_thread(show_error)
-
-        sub = self._event_bus.subscribe(error_listener, "error")
-        self._custom_listeners.append(sub)
-
     def __del__(self):
-        """清理事件处理器和渲染器"""
-        if hasattr(self, '_event_handler'):
-            self._event_handler.unsubscribe_all()
-        if hasattr(self, '_tui_renderer'):
-            self._tui_renderer.unsubscribe_all()
-        # 清理自定义监听器
-        for listener in getattr(self, '_custom_listeners', []):
-            self._event_bus.unsubscribe(listener)
-        self._custom_listeners = []
+        """清理挂起状态"""
         # 清理权限提示状态
         self._showing_permission_prompt = False
         if self._pending_shell_confirm is not None:
@@ -211,14 +151,26 @@ class GGbotTui(App[None]):
             ev.set()
 
     def on_unmount(self) -> None:
-        """文本 UI 生命周期结束时显式清理订阅。"""
-        if hasattr(self, '_event_handler'):
-            self._event_handler.unsubscribe_all()
-        if hasattr(self, '_tui_renderer'):
-            self._tui_renderer.unsubscribe_all()
-        for listener in getattr(self, '_custom_listeners', []):
-            self._event_bus.unsubscribe(listener)
-        self._custom_listeners = []
+        """文本 UI 生命周期结束时显式清理挂起状态。"""
+        self._showing_permission_prompt = False
+        if self._pending_shell_confirm is not None:
+            _, ev, result = self._pending_shell_confirm
+            result["cancel"] = "Cancelled: TUI closing."
+            ev.set()
+
+    def _dispatch_runtime_event(self, event_type: RuntimeEventType, data: dict) -> None:
+        if event_type == "tool_call":
+            self._tool_call_count += 1
+            self._push_status_update(f"工具调用: {self._tool_call_count}")
+            self.call_from_thread(self._render_top_right)
+        if event_type == "error":
+            error_msg = str(data.get("error", "Unknown error"))
+            self._push_status_update(f"错误: {error_msg[:30]}...")
+            self.call_from_thread(self._render_status)
+
+        self._tui_renderer.handle_event(
+            RuntimeEvent(type=cast(RuntimeEventType, event_type), data=data)
+        )
 
     def _input_widget(self) -> Input:
         return self.query_one("#input", Input)
@@ -829,7 +781,7 @@ class GGbotTui(App[None]):
     @work(thread=True, exclusive=True)
     def _run_query_in_worker(self, user_text: str, *, turn_no: int, title_seed: str | None) -> None:
         def publish_local(event_type: RuntimeEventType, data: dict) -> None:
-            self._event_bus.publish(RuntimeEvent(type=cast(RuntimeEventType, event_type), data=data))
+            self._dispatch_runtime_event(event_type, data)
 
         # 使用基础事件处理器发布助手增量输出
         def printer(delta: str) -> None:

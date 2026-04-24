@@ -183,7 +183,7 @@ def run_query(
         #修复缺失的工具调用消息
         sanitize_orphan_tool_messages(messages=messages)
         auto_heal_missing_tool_messages(messages=messages, transcript=transcript)
-
+        # 执行模型轮次
         turn_outcome = perform_model_turn(
             client=client,
             messages=messages,

@@ -1,4 +1,4 @@
-"""Tests for web tools (web_search, web_fetch, http_get)."""
+"""Tests for web tools (web_search, web_fetch)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from ggbot.state.transcript import Transcript
 from ggbot.tools.context import ToolContext
 from ggbot.tools.registry import ToolRegistry
 from ggbot.tools.web import make_web_tools
-from ggbot.tools.http_tools import make_http_tools
 
 
 def test_web_search_tool_registration() -> None:
@@ -50,20 +49,6 @@ def test_web_fetch_tool_registration() -> None:
     assert "url" in spec.parameters["properties"]
     assert "extractMode" in spec.parameters["properties"]
     assert "maxChars" in spec.parameters["properties"]
-
-
-def test_http_get_tool_registration() -> None:
-    """Test that http_get tool is properly registered."""
-    http_get, _, _ = make_http_tools()
-    reg = ToolRegistry()
-    reg.register_tool(http_get)
-
-    specs = reg.specs()
-    assert len(specs) == 1
-    spec = specs[0]
-    assert spec.name == "http_get"
-    assert "Fetch a URL" in spec.description
-    assert "url" in spec.parameters["properties"]
 
 
 def test_web_search_with_mock_brave_api(tmp_path: Path) -> None:
@@ -304,32 +289,6 @@ def test_web_fetch_with_json_response(tmp_path: Path) -> None:
         assert result_data["extractor"] == "json"
         assert '"key": "value"' in result_data["text"]
         assert '"nested": {"item": "test"}' in result_data["text"]
-
-
-def test_http_get_with_mock_response(tmp_path: Path) -> None:
-    """Test http_get with mocked response."""
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, text="Hello, World!")
-
-    transport = httpx.MockTransport(handler)
-    http_get, _, _ = make_http_tools(transport=transport)
-
-    reg = ToolRegistry()
-    reg.register_tool(http_get)
-
-    transcript = Transcript(path=tmp_path / "t.jsonl")
-    ctx = ToolContext(session_id="test", transcript=transcript, workspace_root=tmp_path)
-
-    result = reg.call("http_get", {
-        "url": "https://example.com",
-        "timeout_s": 10.0,
-        "max_chars": 1000
-    }, ctx=ctx)
-
-    data = json.loads(result)
-    assert data["status_code"] == 200
-    assert "Hello, World!" in data["text"]
-    assert "https://example.com" in data["url"]
 
 
 def test_web_search_validation(tmp_path: Path) -> None:
