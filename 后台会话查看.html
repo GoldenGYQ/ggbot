@@ -108,7 +108,7 @@
         <div class="list" id="list"></div>
       </div>
       <div>
-        <div class="panel-title">WS: provider_chunk 原始流</div>
+        <div class="panel-title">事件流（WS本连接 + /api/v1/events）</div>
         <div class="list" id="wsList"></div>
       </div>
     </div>
@@ -126,6 +126,8 @@
     let autoTimer = null;
     let ws = null;
     let wsSeq = 0;
+    let wsConnected = false;
+    const seenEventKeys = new Set();
 
     function fmtTime(tsMs) {
       if (!tsMs) return "-";
@@ -199,24 +201,62 @@
       return `${u}/ws`;
     }
 
-    function pushWsChunk(eventData) {
+    function toEventKey(eventType, eventTsMs, eventSessionId, data, sourceLabel) {
+      const shortData = safeJson(data).slice(0, 240);
+      return `${sourceLabel}|${eventType}|${eventTsMs}|${eventSessionId}|${shortData}`;
+    }
+
+    function renderEventBody(eventType, data) {
+      if (eventType === "provider_chunk") return safeJson(data?.chunk ?? data);
+      if (eventType === "thinking") return String(data?.thinking || "");
+      if (eventType === "assistant_delta") return String(data?.delta || "");
+      return safeJson(data);
+    }
+
+    function pushEventChunk(eventData, sourceLabel) {
       const sessionId = sessionSelectEl.value;
       const data = eventData?.data || {};
-      if (!sessionId || data.session_id !== sessionId) return;
-      if (eventData.event_type !== "provider_chunk") return;
-      const chunk = data.chunk;
+      const eventSessionId = data.session_id || eventData?.session_id || "";
+      if (!sessionId || eventSessionId !== sessionId) return;
+      const eventType = String(eventData.event_type || "");
+      const eventTsMs = Number(eventData.timestamp || 0) * 1000;
+      const eventKey = toEventKey(eventType, eventTsMs, eventSessionId, data, sourceLabel);
+      if (seenEventKeys.has(eventKey)) return;
+      seenEventKeys.add(eventKey);
+
       const div = document.createElement("div");
       div.className = "item out";
       const head = document.createElement("div");
       head.className = "head";
-      head.innerHTML = `<span>#${++wsSeq} | provider_chunk</span><span>${new Date().toLocaleTimeString()}</span>`;
+      head.innerHTML = `<span>#${++wsSeq} | ${sourceLabel} | ${eventType}</span><span>${fmtTime(eventTsMs)}</span>`;
       const pre = document.createElement("pre");
-      pre.textContent = safeJson(chunk);
+      pre.textContent = renderEventBody(eventType, data);
       div.appendChild(head);
       div.appendChild(pre);
       wsListEl.prepend(div);
-      while (wsListEl.children.length > 120) {
+      while (wsListEl.children.length > 200) {
         wsListEl.removeChild(wsListEl.lastChild);
+      }
+    }
+
+    async function loadRecentEvents() {
+      const sessionId = sessionSelectEl.value;
+      if (!sessionId) return;
+      const base = baseUrlEl.value.trim().replace(/\/+$/, "");
+      const res = await fetch(`${base}/api/v1/events?limit=200`);
+      if (!res.ok) throw new Error(`加载 events 失败: HTTP ${res.status}`);
+      const data = await res.json();
+      const events = Array.isArray(data.events) ? data.events : [];
+      for (const ev of events) {
+        pushEventChunk(
+          {
+            event_type: ev.type,
+            session_id: ev.session_id,
+            data: ev.data || {},
+            timestamp: ev.timestamp || 0,
+          },
+          "events"
+        );
       }
     }
 
@@ -227,17 +267,19 @@
       }
       ws = new WebSocket(url);
       ws.onopen = () => {
+        wsConnected = true;
         metaEl.textContent = `${metaEl.textContent} | WS已连接`;
       };
       ws.onmessage = (evt) => {
         try {
           const obj = JSON.parse(evt.data);
           if (obj && obj.type === "event") {
-            pushWsChunk(obj);
+            pushEventChunk(obj, "ws");
           }
         } catch {}
       };
       ws.onclose = () => {
+        wsConnected = false;
         metaEl.textContent = `${metaEl.textContent} | WS已断开`;
         setTimeout(connectWs, 1200);
       };
@@ -247,6 +289,10 @@
       try {
         await loadSessions();
         await loadModelIO();
+        wsListEl.innerHTML = "";
+        wsSeq = 0;
+        seenEventKeys.clear();
+        await loadRecentEvents();
       } catch (e) {
         metaEl.textContent = `错误: ${String(e)}`;
       }
@@ -260,7 +306,7 @@
         return;
       }
       autoTimer = setInterval(() => {
-        loadModelIO().catch((e) => {
+        Promise.all([loadModelIO(), loadRecentEvents()]).catch((e) => {
           metaEl.textContent = `自动刷新失败: ${String(e)}`;
         });
       }, 2000);
@@ -276,13 +322,15 @@
     sessionSelectEl.addEventListener("change", () => {
       wsListEl.innerHTML = "";
       wsSeq = 0;
-      loadModelIO().catch((e) => {
+      seenEventKeys.clear();
+      Promise.all([loadModelIO(), loadRecentEvents()]).catch((e) => {
         metaEl.textContent = `切换会话失败: ${String(e)}`;
       });
     });
 
     connectWs();
     reloadAll();
+    toggleAuto();
   </script>
 </body>
 </html>

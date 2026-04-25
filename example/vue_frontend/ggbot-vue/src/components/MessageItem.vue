@@ -162,6 +162,7 @@ const decidePermission = async (tool: any, allowed: boolean) => {
   flex-direction: column;
   gap: 8px;
   max-width: calc(100% - 44px);
+  min-width: 0;
 }
 
 .bubble {

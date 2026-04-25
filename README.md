@@ -30,9 +30,12 @@ uv sync --extra dev
 
 ### 2) 配置模型（最小）
 
-在仓库根目录创建 `.env`：
-
-（你也可以直接从 `./.env.example` 复制一份。）
+引导式配置：如果你没有配置过模型，会在启动ggbot时引导式填入必要参数
+自动在 `home/.ggbot/` 目录下创建 `.env`：
+（你也可以直接从 `./.env.example` 复制一份。
+ windows用户放在 `%USERData\Local\GGbot\`
+ linux用户放在 `~/.ggbot/`
+ mac用户放在 `~/Library/Preferences/ggbot/`
 
 ```
 OPENAI_MODEL=gpt-4.1-mini

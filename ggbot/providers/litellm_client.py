@@ -6,6 +6,19 @@ from ..models.protocol_models import AssistantFinal, ChatMessage, StreamToolCall
 from .types import GenerationInterrupted, ProviderError
 
 
+def _normalize_model_name(model: str) -> str:
+    normalized = (model or "").strip()
+    if not normalized:
+        return normalized
+    if "/" in normalized:
+        return normalized
+    # DeepSeek is accessed through OpenAI-compatible endpoint in this project.
+    # Some LiteLLM versions require explicit provider prefix for these aliases.
+    if normalized.startswith("deepseek-"):
+        return f"openai/{normalized}"
+    return normalized
+
+
 def _to_dict(obj: Any) -> dict[str, Any]:
     if isinstance(obj, dict):
         return obj
@@ -61,7 +74,7 @@ class LiteLLMClient:
         api_key: str | None = None,
         timeout_s: float = 60.0,
     ) -> None:
-        self._model = model
+        self._model = _normalize_model_name(model)
         self._api_base = api_base
         self._api_key = api_key
         self._timeout_s = timeout_s
@@ -71,7 +84,12 @@ class LiteLLMClient:
         return
 
     def complete(self, *, messages: list[ChatMessage], tools: list[dict[str, Any]] | None) -> AssistantFinal:
-        return self.stream_and_collect(messages=messages, tools=tools, on_text_delta=None)
+        return self.stream_and_collect(
+            messages=messages,
+            tools=tools,
+            on_text_delta=None,
+            on_reasoning_delta=None,
+        )
 
     def stream_and_collect(
         self,
@@ -79,6 +97,7 @@ class LiteLLMClient:
         messages: list[ChatMessage],
         tools: list[dict[str, Any]] | None,
         on_text_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
         on_raw_chunk: Callable[[dict[str, Any]], None] | None = None,
         interrupt_callback: Callable[[], bool] | None = None,
     ) -> AssistantFinal:
@@ -126,6 +145,15 @@ class LiteLLMClient:
 
                 c0 = choices[0] or {}
                 delta = c0.get("delta") or {}
+
+                reasoning = (
+                    delta.get("reasoning_content")
+                    or delta.get("reasoning")
+                    or delta.get("thinking")
+                    or c0.get("reasoning_content")
+                )
+                if reasoning and on_reasoning_delta is not None:
+                    on_reasoning_delta(str(reasoning))
 
                 text = delta.get("content")
                 if text:

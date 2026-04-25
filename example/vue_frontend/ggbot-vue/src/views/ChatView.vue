@@ -5,6 +5,7 @@ import { api } from '../api/client';
 import MessageItem from '../components/MessageItem.vue';
 
 const inputMessage = ref('');
+const providerThinkingEnabled = ref(true);
 const chatScroll = ref<HTMLElement | null>(null);
 
 const scrollToBottom = async () => {
@@ -309,7 +310,12 @@ const sendMessage = async () => {
   scrollToBottom();
 
   try {
-    const commandId = await api.sendMessageWS(content, chatStore.currentSessionId || undefined);
+    const commandId = await api.sendMessageWS(
+      content,
+      chatStore.currentSessionId || undefined,
+      providerThinkingEnabled.value,
+      providerThinkingEnabled.value
+    );
     pendingSendCommandIds.add(commandId);
   } catch (err) {
     console.error('Send message failed:', err);
@@ -409,6 +415,16 @@ watch(() => chatStore.messages.length, scrollToBottom);
       </div>
       
       <footer class="input-area">
+        <div class="chat-options">
+          <label class="thinking-toggle">
+            <input
+              type="checkbox"
+              v-model="providerThinkingEnabled"
+              :disabled="chatStore.isTyping"
+            />
+            <span>思考模式（DeepSeek Reasoner）</span>
+          </label>
+        </div>
         <div class="input-container">
           <textarea 
             v-model="inputMessage" 
@@ -623,6 +639,24 @@ watch(() => chatStore.messages.length, scrollToBottom);
   width: 100%;
   padding-left: 40px;
   padding-right: 40px;
+}
+
+.chat-options {
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.thinking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #666;
+}
+
+.thinking-toggle input {
+  cursor: pointer;
 }
 
 .input-container {

@@ -20,6 +20,7 @@ class ChatCompletionClient(Protocol):
         messages: list[ChatMessage],
         tools: list[dict[str, Any]] | None,
         on_text_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
         on_raw_chunk: Callable[[dict[str, Any]], None] | None = None,
         interrupt_callback: Callable[[], bool] | None = None,
     ) -> AssistantFinal: ...

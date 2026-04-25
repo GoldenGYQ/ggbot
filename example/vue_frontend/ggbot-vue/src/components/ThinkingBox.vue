@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
-defineProps<{
+const isExpanded = ref(false);
+const props = defineProps<{
   thinking: string;
 }>();
 
-const isExpanded = ref(false);
+const previewText = computed(() => {
+  const text = (props.thinking || '').trim();
+  if (text.length <= 120) return text;
+  return `${text.slice(0, 120)}...`;
+});
 </script>
 
 <template>
@@ -18,11 +23,9 @@ const isExpanded = ref(false);
       <div class="arrow" :class="{ rotated: isExpanded }">▼</div>
     </div>
     <div v-if="isExpanded" class="content">
-      <pre>{{ thinking }}</pre>
+      <pre>{{ props.thinking }}</pre>
     </div>
-    <div v-else class="preview">
-      {{ thinking.slice(0, 100) }}...
-    </div>
+    <div v-else class="preview">{{ previewText }}</div>
   </div>
 </template>
 
@@ -35,8 +38,9 @@ const isExpanded = ref(false);
   font-size: 13px;
   color: #666;
   border-left: 3px solid #ccc;
-  cursor: pointer;
   transition: all 0.2s ease;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .header {
@@ -63,14 +67,26 @@ const isExpanded = ref(false);
 
 .content {
   margin-top: 8px;
+  min-width: 0;
+}
+
+.content pre {
+  margin: 0;
   white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   line-height: 1.5;
+  font-family: inherit;
+  max-width: 100%;
 }
 
 .preview {
   margin-top: 4px;
   font-style: italic;
   color: #999;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .expanded {

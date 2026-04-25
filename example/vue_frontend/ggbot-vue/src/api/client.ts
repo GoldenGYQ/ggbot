@@ -148,10 +148,17 @@ export class GGbotAPI {
     return commandId;
   }
 
-  async sendMessageWS(content: string, sessionId?: string): Promise<string> {
+  async sendMessageWS(
+    content: string,
+    sessionId?: string,
+    providerThinking?: boolean,
+    thinkingEnabled?: boolean
+  ): Promise<string> {
     return this.sendWSCommand('send_message', {
       content,
-      session_id: sessionId
+      session_id: sessionId,
+      provider_thinking: providerThinking,
+      thinking_enabled: thinkingEnabled
     });
   }
 

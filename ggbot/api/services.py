@@ -21,6 +21,7 @@ from ..state.session_store import SessionStore
 from ..state.transcript import Transcript
 from ..models.protocol_models import ChatMessage
 from ..tools.context import ToolContext
+from ..providers.litellm_client import LiteLLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,42 @@ class APIService:
 
     def _get_or_create_session_context(self, session_id: str) -> SessionExecutionContext:
         return self.runtime_manager.get_or_create_context(session_id)
+
+    def _resolve_provider_client(self, provider_thinking: Optional[bool]) -> tuple[Any, str]:
+        """Resolve per-request provider client without mutating global settings."""
+        base_model = str(self.runtime.settings.openai_model or "").strip()
+        if provider_thinking is None:
+            return self.runtime.client, base_model
+
+        provider_prefix = ""
+        model_name = base_model
+        if "/" in base_model:
+            provider_prefix, model_name = base_model.split("/", 1)
+            provider_prefix = provider_prefix.strip()
+            model_name = model_name.strip()
+
+        # Old DeepSeek dual-model mode:
+        # deepseek-chat <-> deepseek-reasoner
+        if model_name not in {"deepseek-chat", "deepseek-reasoner"}:
+            return self.runtime.client, base_model
+
+        target_name = "deepseek-reasoner" if provider_thinking else "deepseek-chat"
+        if target_name == model_name:
+            return self.runtime.client, base_model
+
+        # LiteLLM may require provider-qualified model for DeepSeek aliases.
+        # Prefer existing prefix; otherwise default to openai-compatible routing.
+        prefix = provider_prefix or "openai"
+        target_model = f"{prefix}/{target_name}"
+
+        return (
+            LiteLLMClient(
+                model=target_model,
+                api_base=self.runtime.settings.openai_base_url,
+                api_key=self.runtime.settings.openai_api_key,
+            ),
+            target_model,
+        )
 
     # ==================== 会话管理 ====================
 
@@ -456,6 +493,7 @@ class APIService:
     async def send_message(self, content: str, session_id: Optional[str] = None,
                           max_turns: Optional[int] = None,
                           thinking_enabled: Optional[bool] = None,
+                          provider_thinking: Optional[bool] = None,
                           stream: bool = False,
                           event_callback: Optional[Callable[[RuntimeEvent], None]] = None,
                           connection_id: Optional[str] = None) -> Dict[str, Any]:
@@ -472,6 +510,8 @@ class APIService:
             if thinking_enabled is None
             else thinking_enabled
         )
+        request_client, provider_model = self._resolve_provider_client(provider_thinking)
+        temporary_client = request_client is not self.runtime.client
         stop_signal = threading.Event()
         self._stop_signals[target_session_id] = stop_signal
 
@@ -536,7 +576,7 @@ class APIService:
             async with self.runtime_manager.get_lock(target_session_id):
                 result = await asyncio.to_thread(
                     run_query,
-                    client=self.runtime.client,
+                    client=request_client,
                     registry=self.runtime.registry,
                     transcript=context.transcript,
                     messages=context.messages,
@@ -566,7 +606,7 @@ class APIService:
                 and (current_meta is None or not current_meta.title or current_meta.title == "Untitled")
             )
             if should_generate_title:
-                title = await self._generate_title(content)
+                title = await self._generate_title(content, client=request_client)
                 if title:
                     self.session_store.set_title(target_session_id, title=title, title_gen_turn=turn_no)
                     combined_event_callback(
@@ -586,6 +626,8 @@ class APIService:
                 "turn_number": turn_no,
                 "turns_used": result.turns_used,
                 "title": title,
+                "provider_model": provider_model,
+                "provider_thinking": provider_thinking,
                 "events": events_collector.get_events(),
                 "final_response": events_collector.get_final_response(),
                 "has_thinking": events_collector.has_thinking,
@@ -596,6 +638,11 @@ class APIService:
             logger.error(f"发送消息失败: {e}")
             raise
         finally:
+            if temporary_client:
+                try:
+                    request_client.close()
+                except Exception:
+                    pass
             permission_manager.reset_request_context(permission_ctx_token)
             current_signal = self._stop_signals.get(target_session_id)
             if current_signal is stop_signal:
@@ -620,7 +667,7 @@ class APIService:
             "message": "已请求中断当前生成任务。",
         }
 
-    async def _generate_title(self, seed: str) -> Optional[str]:
+    async def _generate_title(self, seed: str, client: Any | None = None) -> Optional[str]:
         """生成会话标题"""
         seed = (seed or "").strip()
         if not seed:
@@ -632,7 +679,7 @@ class APIService:
         )
 
         try:
-            final = self.runtime.client.complete(
+            final = (client or self.runtime.client).complete(
                 messages=[
                     ChatMessage(role="system", content=prompt),
                     ChatMessage(role="user", content=seed),

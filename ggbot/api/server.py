@@ -445,6 +445,11 @@ class APIServer:
             session_id = payload.get("session_id")
             max_turns = payload.get("max_turns")
             thinking_enabled = payload.get("thinking_enabled")
+            provider_thinking = payload.get("provider_thinking")
+            if thinking_enabled is not None and not isinstance(thinking_enabled, bool):
+                raise ValueError("thinking_enabled必须是布尔值")
+            if provider_thinking is not None and not isinstance(provider_thinking, bool):
+                raise ValueError("provider_thinking必须是布尔值")
             ws_event_callback: Callable[[RuntimeEvent], None] | None = None
             if connection_id and event_loop is not None:
                 # Bind runtime events to the initiating websocket connection.
@@ -456,6 +461,7 @@ class APIServer:
                 session_id,
                 max_turns,
                 thinking_enabled,
+                provider_thinking=provider_thinking,
                 event_callback=ws_event_callback,
                 connection_id=connection_id,
             )

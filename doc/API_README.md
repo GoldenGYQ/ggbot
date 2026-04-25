@@ -151,7 +151,36 @@ payload 字段：
 - `content`：用户输入（必填）
 - `session_id`：会话 ID（选填，不传则使用当前会话）
 - `max_turns`：限制本次最大轮次（选填）
-- `thinking_enabled`：是否返回 thinking 事件（选填）
+- `thinking_enabled`：是否启用 thinking（选填，必须是布尔值）
+- `provider_thinking`：是否让 provider 走思考模型（选填，必须是布尔值；在旧 DeepSeek 模式下会在 `deepseek-chat`/`deepseek-reasoner` 间按本次请求切换）
+
+Vue 前端开关示例（同一个命令，只改布尔值）：
+
+```json
+{
+  "type": "command",
+  "id": "msg_on",
+  "command": "send_message",
+  "payload": {
+    "content": "请分析这个方案",
+    "session_id": "api",
+    "thinking_enabled": true
+  }
+}
+```
+
+```json
+{
+  "type": "command",
+  "id": "msg_off",
+  "command": "send_message",
+  "payload": {
+    "content": "直接给结论",
+    "session_id": "api",
+    "thinking_enabled": false
+  }
+}
+```
 
 小 case：聊天输入框发送
 

@@ -115,6 +115,7 @@ def perform_model_turn(
     accumulated_text = ""
     last_plan_content = ""
     streamed_thinking = ""
+    streamed_reasoning_raw = ""
 
     def add_event(event: RuntimeEvent, *, include_in_result: bool = True) -> None:
         if include_in_result:
@@ -192,6 +193,33 @@ def perform_model_turn(
                             include_in_result=False,
                         )
 
+    def on_reasoning_delta(text: str) -> None:
+        nonlocal streamed_reasoning_raw
+        if not thinking_enabled:
+            return
+        if should_stop is not None and should_stop():
+            raise GenerationInterrupted("Generation interrupted by user request.")
+
+        if text.startswith(streamed_reasoning_raw):
+            delta = text[len(streamed_reasoning_raw):]
+            streamed_reasoning_raw = text
+        else:
+            delta = text
+            streamed_reasoning_raw += text
+
+        if delta:
+            add_event(
+                runtime_event(
+                    "thinking",
+                    {
+                        "thinking": delta,
+                        "content_len": len(delta),
+                        "streaming": True,
+                    },
+                ),
+                include_in_result=False,
+            )
+
     def on_raw_chunk(chunk: dict[str, Any]) -> None:
         transcript.append("provider_chunk", {"chunk": chunk})
         add_event(
@@ -204,6 +232,7 @@ def perform_model_turn(
             messages=messages,
             tools=tools,
             on_text_delta=on_delta,
+            on_reasoning_delta=on_reasoning_delta,
             on_raw_chunk=on_raw_chunk,
             interrupt_callback=should_stop,
         )
