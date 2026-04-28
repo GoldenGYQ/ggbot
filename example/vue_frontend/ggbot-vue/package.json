@@ -12,7 +12,11 @@
     "format": "oxfmt src/"
   },
   "dependencies": {
+    "@tiptap/extension-placeholder": "^3.22.4",
+    "@tiptap/starter-kit": "^3.22.4",
+    "@tiptap/vue-3": "^3.22.4",
     "@types/markdown-it": "^14.1.2",
+    "@vue-office/docx": "^1.6.3",
     "axios": "^1.15.0",
     "dayjs": "^1.11.20",
     "highlight.js": "^11.11.1",

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Callable
 import os
 import time
+import re
 
 from pydantic import BaseModel, Field
 
@@ -30,48 +31,80 @@ def _truncate(s: str, limit: int) -> str:
 def _extract_paths_from_command(command: str, workspace_root: Path) -> list[Path]:
     """从shell命令中提取路径并检查是否在允许的工作区内"""
     import shlex
-    from pathlib import Path
 
     paths = []
+
+    def _is_shell_operator(token: str) -> bool:
+        return token in {"&&", "||", "|", ";", "&", ">", ">>", "<", "<<", "2>", "1>", "2>&1"}
+
+    def _is_windows_switch(token: str) -> bool:
+        # e.g. /B, /S, /A:D
+        return bool(re.match(r"^/[A-Za-z][A-Za-z0-9:,-]*$", token))
+
+    def _looks_like_path_token(token: str) -> bool:
+        if not token:
+            return False
+        if token.startswith("~") or token.startswith("."):
+            return True
+        if token.startswith("/") and not _is_windows_switch(token):
+            return True
+        if "\\" in token:
+            return True
+        if "/" in token:
+            return True
+        suffix = Path(token).suffix
+        if suffix and any(ch.isalpha() for ch in suffix[1:]):
+            return True
+        return False
+
+    def _to_candidate_path(token: str) -> Path:
+        p = Path(token)
+        if p.is_absolute():
+            return p.resolve()
+        return (workspace_root / p).resolve()
+
     try:
-        # 简单的路径提取逻辑
-        parts = shlex.split(command)
-        for i, part in enumerate(parts):
-            # 跳过选项和参数
-            if part.startswith('-'):
+        parts = shlex.split(command, posix=(os.name != "nt"))
+        expect_executable = True
+        i = 0
+        while i < len(parts):
+            part = parts[i]
+            if not part:
+                i += 1
                 continue
 
-            # 第一个 token 通常是可执行程序路径，允许在工作区外。
-            if i == 0:
+            if _is_shell_operator(part):
+                expect_executable = True
+                i += 1
                 continue
 
-            # 处理cd命令的目标目录
-            if part == 'cd' and i + 1 < len(parts):
-                next_part = parts[i + 1]
+            # 每个子命令的第一个 token 视为可执行程序，允许不在工作区内。
+            if expect_executable:
+                expect_executable = False
+                lower = part.lower()
+                if lower in {"cd", "chdir", "pushd"} and i + 1 < len(parts):
+                    target = parts[i + 1]
+                    if target and not target.startswith("-") and not _is_windows_switch(target):
+                        try:
+                            paths.append(_to_candidate_path(target))
+                        except Exception:
+                            pass
+                    i += 2
+                    continue
+                i += 1
+                continue
+
+            # 跳过常见参数形式，尤其是 Windows 的 /B /S 这类开关。
+            if part.startswith("-") or _is_windows_switch(part):
+                i += 1
+                continue
+
+            if _looks_like_path_token(part):
                 try:
-                    path = Path(next_part)
-                    if path.is_absolute():
-                        paths.append(path)
-                    else:
-                        # 相对路径，相对于当前目录（在shell中执行时会解析）
-                        # 这里我们假设当前目录是workspace_root
-                        paths.append((workspace_root / path).resolve())
+                    paths.append(_to_candidate_path(part))
                 except Exception:
                     pass
-
-            # 尝试解析为路径
-            try:
-                path = Path(part)
-                if path.is_absolute():
-                    paths.append(path)
-                else:
-                    # 对于相对路径，检查它是否看起来像一个路径（包含路径分隔符或扩展名）
-                    if '/' in part or '\\' in part or '.' in part:
-                        # 相对路径，相对于workspace_root
-                        full_path = (workspace_root / path).resolve()
-                        paths.append(full_path)
-            except Exception:
-                continue
+            i += 1
     except Exception:
         # 如果解析失败，返回空列表
         pass

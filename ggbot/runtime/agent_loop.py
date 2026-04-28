@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import contextvars
 import json
 import threading
 
@@ -187,7 +188,7 @@ def run_query(
 
         #修复缺失的工具调用消息
         sanitize_orphan_tool_messages(messages=messages)
-        auto_heal_missing_tool_messages(messages=messages, transcript=transcript)
+        auto_heal_missing_tool_messages(messages=messages)
         # 执行模型轮次
         turn_outcome = perform_model_turn(
             client=client,
@@ -241,6 +242,7 @@ def run_query(
 
                     futures.append(
                         executor.submit(
+                            contextvars.copy_context().run,
                             execute_tool_call,
                             tool_call=tool_call,
                             registry=registry,

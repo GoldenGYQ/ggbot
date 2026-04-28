@@ -21,6 +21,7 @@ export type EventType =
   | "error"
   | "provider_error"
   | "session_update"
+  | "doc_build_stage"
   | "permission_request"
   | "permission_response";
 

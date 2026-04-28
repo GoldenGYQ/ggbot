@@ -112,6 +112,13 @@ class ToolManager:
             docx_add_table,
             docx_replace_text,
             docx_read_outline,
+            docx_build_check,
+            docx_inspect_structure,
+            docx_list_styles,
+            docx_read_table,
+            docx_update_table_style,
+            docx_update_cell_style,
+            docx_replace_in_table,
             docx_save_as,
         ) = make_docx_tools(workspace_root=self._settings.workspace_root)
 
@@ -141,6 +148,13 @@ class ToolManager:
                 docx_add_table,
                 docx_replace_text,
                 docx_read_outline,
+                docx_build_check,
+                docx_inspect_structure,
+                docx_list_styles,
+                docx_read_table,
+                docx_update_table_style,
+                docx_update_cell_style,
+                docx_replace_in_table,
                 docx_save_as,
             )
         )

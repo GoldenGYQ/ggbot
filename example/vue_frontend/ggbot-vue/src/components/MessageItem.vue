@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue';
+import { computed } from 'vue';
 import type { Message } from '../stores/chat';
 import ThinkingBox from './ThinkingBox.vue';
 import PlanProgress from './PlanProgress.vue';
-import { api } from '../api/client';
 import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css';
@@ -25,7 +24,6 @@ const md = new MarkdownIt({
 
 const isAssistant = computed(() => props.message.role === 'assistant');
 const isUser = computed(() => props.message.role === 'user');
-const permissionSubmitting = reactive<Record<string, boolean>>({});
 
 const formattedContent = computed(() => {
   if (!props.message.content) return '';
@@ -36,35 +34,6 @@ const formattedContent = computed(() => {
   return md.render(cleaned);
 });
 
-const decidePermission = async (tool: any, allowed: boolean) => {
-  const requestId = tool.request_id;
-  if (!requestId) return;
-  if (permissionSubmitting[requestId]) return;
-
-  permissionSubmitting[requestId] = true;
-  try {
-    await api.sendPermissionResponse(
-      requestId,
-      allowed,
-      tool.session_id,
-      allowed ? 'Approved from Vue UI' : 'Rejected from Vue UI'
-    );
-    if (allowed) {
-      tool.requires_permission = false;
-      tool.status = 'calling';
-      tool.result = '已批准，等待执行结果...';
-    } else {
-      tool.requires_permission = false;
-      tool.status = 'error';
-      tool.result = '已拒绝执行';
-    }
-  } catch (err) {
-    tool.result = `提交权限决策失败: ${String(err)}`;
-    tool.status = 'error';
-  } finally {
-    permissionSubmitting[requestId] = false;
-  }
-};
 </script>
 
 <template>
@@ -91,22 +60,6 @@ const decidePermission = async (tool: any, allowed: boolean) => {
           </div>
           <div v-if="tool.args || tool.raw_arguments" class="tool-args">
             <code>{{ tool.args ? JSON.stringify(tool.args) : tool.raw_arguments }}</code>
-          </div>
-          <div v-if="tool.requires_permission && tool.request_id" class="permission-actions">
-            <button
-              class="permission-btn allow"
-              :disabled="permissionSubmitting[tool.request_id]"
-              @click="decidePermission(tool, true)"
-            >
-              允许
-            </button>
-            <button
-              class="permission-btn deny"
-              :disabled="permissionSubmitting[tool.request_id]"
-              @click="decidePermission(tool, false)"
-            >
-              拒绝
-            </button>
           </div>
           <div v-if="tool.result" class="tool-result">
              <pre>{{ tool.result }}</pre>
@@ -277,34 +230,6 @@ const decidePermission = async (tool: any, allowed: boolean) => {
   padding: 6px;
   border-radius: 4px;
   overflow-x: auto;
-}
-
-.permission-actions {
-  margin-top: 8px;
-  display: flex;
-  gap: 8px;
-}
-
-.permission-btn {
-  border: 1px solid #d9d9df;
-  background: #fff;
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.permission-btn.allow {
-  color: #0f7a3a;
-}
-
-.permission-btn.deny {
-  color: #b42318;
-}
-
-.permission-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 code, pre {

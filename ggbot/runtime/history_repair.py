@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from ..state.transcript import Transcript
 from ..models.protocol_models import ChatMessage
 
 
-def auto_heal_missing_tool_messages(*, messages: list[ChatMessage], transcript: Transcript) -> None:
+def auto_heal_missing_tool_messages(
+    *,
+    messages: list[ChatMessage],
+    persist_to_transcript: bool = False,
+) -> None:
     """Ensure any assistant tool_calls are followed by matching tool messages."""
 
     i = 0
@@ -33,16 +36,6 @@ def auto_heal_missing_tool_messages(*, messages: list[ChatMessage], transcript: 
                 name=tc.function.name,
             )
             messages.insert(j, tool_msg)
-            transcript.append("model_message", tool_msg.model_dump(exclude_none=True))
-            transcript.append(
-                "tool_result",
-                {
-                    "id": tc.id,
-                    "name": tc.function.name,
-                    "content_len": len(tool_msg.content),
-                    "auto_healed": True,
-                },
-            )
             j += 1
 
         i = j

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from ggbot.api.permission_manager import get_permission_manager
 from ggbot.models.protocol_models import AssistantFinal,ChatMessage, ToolCall, ToolFunction
 from ggbot.runtime.agent_loop import ToolLimits, run_query
 from ggbot.tools.registry import ToolRegistry, tool
@@ -178,6 +179,16 @@ def test_run_query_auto_heals_missing_tool_messages_before_provider_call(tmp_pat
     else:
         raise AssertionError("Did not find assistant tool_calls in payload")
 
+    # Auto-healed synthetic tool messages should stay in-memory only.
+    # Persisting them at transcript tail can create out-of-order orphan tool entries.
+    events = list(transcript.iter_events())
+    assert not any(
+        ev.get("type") == "model_message"
+        and (ev.get("data") or {}).get("role") == "tool"
+        and (ev.get("data") or {}).get("tool_call_id") == "call_missing"
+        for ev in events
+    )
+
     client.close()
 
 
@@ -290,3 +301,84 @@ def test_run_query_sanitizes_orphan_tool_messages_before_provider_call(tmp_path:
     assert not any(m.get("role") == "tool" for m in sent)
 
     client.close()
+
+
+def test_run_query_propagates_permission_context_into_tool_threads(tmp_path: Path) -> None:
+    class _Client:
+        def __init__(self) -> None:
+            self.n = 0
+
+        def close(self) -> None:
+            return
+
+        def complete(self, *, messages: list[ChatMessage], tools):
+            return self.stream_and_collect(
+                messages=messages,
+                tools=tools,
+                on_text_delta=None,
+                on_reasoning_delta=None,
+            )
+
+        def stream_and_collect(
+            self,
+            *,
+            messages: list[ChatMessage],
+            tools,
+            on_text_delta=None,
+            on_reasoning_delta=None,
+            **kwargs,
+        ):
+            self.n += 1
+            if self.n == 1:
+                return AssistantFinal(
+                    content="",
+                    tool_calls=[
+                        ToolCall(
+                            id="call_perm",
+                            function=ToolFunction(name="needs_permission", arguments="{}"),
+                        )
+                    ],
+                )
+            return AssistantFinal(content="ok", tool_calls=[])
+
+    from pydantic import BaseModel
+
+    class EmptyArgs(BaseModel):
+        pass
+
+    @tool(name="needs_permission", description="request permission", input_model=EmptyArgs)
+    def needs_permission(args: EmptyArgs) -> str:
+        allowed, reason, _ = get_permission_manager().request(
+            tool_name="shell_run",
+            arguments={"command": "echo hi"},
+            timeout_s=0.02,
+        )
+        return f"allowed={allowed}; reason={reason}"
+
+    reg = ToolRegistry()
+    reg_tool = getattr(needs_permission, "__ggbot_tool__")
+    reg.register(reg_tool.spec, reg_tool.handler)
+
+    transcript = Transcript(path=tmp_path / "t_perm.jsonl")
+    messages: list[ChatMessage] = [ChatMessage(role="system", content="sys")]
+    emitted = []
+    manager = get_permission_manager()
+    token = manager.set_request_context(
+        connection_id="conn-1",
+        session_id="session-1",
+        event_callback=lambda event: emitted.append(event),
+    )
+    try:
+        run_query(
+            client=_Client(),
+            registry=reg,
+            transcript=transcript,
+            messages=messages,
+            user_text="do tool",
+            max_turns=2,
+            stream_printer=None,
+        )
+    finally:
+        manager.reset_request_context(token)
+
+    assert any(ev.type == "permission_request" for ev in emitted)

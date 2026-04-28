@@ -9,11 +9,12 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable, Awaitable
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from ..runtime.agent_loop import ToolLimits
@@ -22,6 +23,7 @@ from ..app.app_bootstrap import AgentRuntime
 from ..state.session_store import SessionStore
 from ..state.transcript import Transcript
 from ..models.protocol_models import ChatMessage
+from ..workspace.permissions import ensure_under_root, PermissionError as WorkspacePermissionError
 
 from .services import APIService, get_global_api_service
 
@@ -116,6 +118,25 @@ class DocumentChangeSetRequest(BaseModel):
     after: str = ""
     document_id: Optional[str] = None
     source: Optional[str] = None
+
+
+class DocxManifestBuildRequest(BaseModel):
+    """根据 markdown 文档块构建 docx 清单请求"""
+    markdown_text: str
+    docs_dir: str = "docs"
+    manifest_name: str = "doc_build_manifest.json"
+    docx_path: str = "docs/output.docx"
+    write_files: bool = True
+
+
+class DocxBuildRunRequest(BaseModel):
+    """执行 docx 构建步骤请求"""
+    manifest_path: str = "docs/doc_build_manifest.json"
+    session_id: Optional[str] = None
+    only_section_id: Optional[str] = None
+    resume: bool = True
+    write_state: bool = True
+    state_path: Optional[str] = None
 
 
 # ==================== 异常日志装饰器 ====================
@@ -346,6 +367,33 @@ class APIServer:
         async def build_document_change_set(request: DocumentChangeSetRequest):
             return await self._handle_build_document_change_set(request)
 
+        @self.app.post("/api/v1/documents/docx-manifest")
+        async def build_docx_manifest(request: DocxManifestBuildRequest):
+            return await self._handle_build_docx_manifest(request)
+
+        @self.app.post("/api/v1/documents/docx-build/run")
+        async def run_docx_build(request: DocxBuildRunRequest):
+            return await self._handle_run_docx_build(request)
+
+        @self.app.get("/api/v1/workspace/file")
+        async def get_workspace_file(path: str = Query(..., description="工作区相对路径")):
+            workspace_root = Path(self.runtime.settings.workspace_root).resolve()
+            try:
+                target = ensure_under_root(workspace_root, (workspace_root / path))
+            except WorkspacePermissionError as exc:
+                raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+            if not target.exists() or not target.is_file():
+                raise HTTPException(status_code=404, detail=f"文件不存在: {path}")
+            if target.suffix.lower() != ".docx":
+                raise HTTPException(status_code=400, detail="当前接口仅支持 .docx 文件预览")
+
+            return FileResponse(
+                path=str(target),
+                filename=target.name,
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+
         # DEPRECATED (Transport split): HTTP permission response endpoint is disabled.
         # Permission decisions must go through WS `permission_response` command.
         # Legacy code kept for reference (do not delete):
@@ -365,6 +413,15 @@ class APIServer:
                     await self._handle_client_message(connection_id, data, event_loop=event_loop)
                 except WebSocketDisconnect:
                     break
+                except RuntimeError as e:
+                    message = str(e)
+                    # Starlette 在连接已关闭后调用 receive_json 会抛该异常；
+                    # 这里应结束循环，避免重复报错刷屏。
+                    if "WebSocket is not connected" in message:
+                        logger.debug(f"WebSocket连接已关闭: {connection_id}")
+                        break
+                    logger.error("处理WebSocket消息失败", exc_info=True)
+                    await self._send_error(connection_id, message)
                 except Exception as e:
                     logger.error(f"处理WebSocket消息失败", exc_info=True)
                     await self._send_error(connection_id, str(e))
@@ -413,27 +470,53 @@ class APIServer:
 
                 if not isinstance(command, str):
                     raise ValueError("命令必须是字符串")
-                
-                response = await self._handle_command(
-                    command,
-                    payload,
-                    connection_id=connection_id,
-                    event_loop=event_loop,
+                # Do not block receive loop on long-running commands (e.g. send_message),
+                # otherwise follow-up commands like permission_response cannot be handled in time.
+                asyncio.create_task(
+                    self._process_command_and_reply(
+                        connection_id=connection_id,
+                        message_id=message_id,
+                        command=command,
+                        payload=payload,
+                        event_loop=event_loop,
+                    )
                 )
-
-                await self.connection_manager.send_message(connection_id, {
-                    "type": "response",
-                    "id": message_id,
-                    "command": command,
-                    "payload": response,
-                    "timestamp": time.time()
-                })
             else:
                 logger.warning(f"未知的消息类型: {message_type}")
                 await self._send_error(connection_id, f"未知的消息类型: {message_type}")
 
         except Exception as e:
             logger.error(f"处理客户端消息失败", exc_info=True)
+            await self._send_error(connection_id, str(e))
+
+    async def _process_command_and_reply(
+        self,
+        *,
+        connection_id: str,
+        message_id: str,
+        command: str,
+        payload: Dict[str, Any],
+        event_loop: asyncio.AbstractEventLoop | None = None,
+    ) -> None:
+        try:
+            response = await self._handle_command(
+                command,
+                payload,
+                connection_id=connection_id,
+                event_loop=event_loop,
+            )
+            await self.connection_manager.send_message(
+                connection_id,
+                {
+                    "type": "response",
+                    "id": message_id,
+                    "command": command,
+                    "payload": response,
+                    "timestamp": time.time(),
+                },
+            )
+        except Exception as e:
+            logger.error(f"处理命令失败: command={command}", exc_info=True)
             await self._send_error(connection_id, str(e))
 
     async def _send_error(self, connection_id: str, error_message: str):
@@ -539,6 +622,23 @@ class APIServer:
                     else None
                 ),
                 source=(str(payload.get("source")) if payload.get("source") is not None else None),
+            )
+        elif command == "build_docx_manifest":
+            return await self.api_service.build_docx_manifest(
+                markdown_text=str(payload.get("markdown_text") or ""),
+                docs_dir=str(payload.get("docs_dir") or "docs"),
+                manifest_name=str(payload.get("manifest_name") or "doc_build_manifest.json"),
+                docx_path=str(payload.get("docx_path") or "docs/output.docx"),
+                write_files=bool(payload.get("write_files", True)),
+            )
+        elif command == "run_docx_build":
+            return await self.api_service.run_docx_build(
+                manifest_path=str(payload.get("manifest_path") or "docs/doc_build_manifest.json"),
+                session_id=(str(payload.get("session_id")) if payload.get("session_id") is not None else None),
+                only_section_id=(str(payload.get("only_section_id")) if payload.get("only_section_id") is not None else None),
+                resume=bool(payload.get("resume", True)),
+                write_state=bool(payload.get("write_state", True)),
+                state_path=(str(payload.get("state_path")) if payload.get("state_path") is not None else None),
             )
         else:
             raise ValueError(f"未知命令: {command}")
@@ -740,6 +840,33 @@ class APIServer:
             after=request.after,
             document_id=request.document_id,
             source=request.source,
+        )
+
+    @log_exceptions(logger)
+    async def _handle_build_docx_manifest(
+        self, request: DocxManifestBuildRequest
+    ) -> Dict[str, Any]:
+        """处理构建 docx 文档清单请求"""
+        return await self.api_service.build_docx_manifest(
+            markdown_text=request.markdown_text,
+            docs_dir=request.docs_dir,
+            manifest_name=request.manifest_name,
+            docx_path=request.docx_path,
+            write_files=request.write_files,
+        )
+
+    @log_exceptions(logger)
+    async def _handle_run_docx_build(
+        self, request: DocxBuildRunRequest
+    ) -> Dict[str, Any]:
+        """处理执行 docx 构建步骤请求"""
+        return await self.api_service.run_docx_build(
+            manifest_path=request.manifest_path,
+            session_id=request.session_id,
+            only_section_id=request.only_section_id,
+            resume=request.resume,
+            write_state=request.write_state,
+            state_path=request.state_path,
         )
 
     @log_exceptions(logger)

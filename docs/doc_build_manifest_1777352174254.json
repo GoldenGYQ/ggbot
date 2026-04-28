@@ -1,0 +1,47 @@
+{
+  "schema_version": "doc_build@v1",
+  "title": "测试文档",
+  "sections": [
+    {
+      "id": "s1",
+      "heading": "开场",
+      "level": 1,
+      "source_file": "docs/tmp/s1_1777352174254.md",
+      "constraints": {}
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "docs/tmp/s1_1777352174254.md",
+      "type": "section_text",
+      "status": "generated"
+    }
+  ],
+  "build_steps": [
+    {
+      "step": "docx_create",
+      "args": {
+        "path": "docs/output.docx",
+        "title": "测试文档"
+      }
+    },
+    {
+      "step": "docx_add_heading",
+      "args": {
+        "path": "docs/output.docx",
+        "text": "开场",
+        "level": 1
+      }
+    },
+    {
+      "step": "docx_add_paragraph_from_file",
+      "args": {
+        "path": "docs/output.docx",
+        "text_file_path": "docs/tmp/s1_1777352174254.md"
+      }
+    }
+  ],
+  "quality_warnings": [
+    "章节 s1 内容过短，建议补充"
+  ]
+}

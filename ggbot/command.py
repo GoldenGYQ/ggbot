@@ -89,7 +89,10 @@ def _make_api_shell_confirm_callback(logger):
             logger.info(f"API mode approved shell_run: request_id={request_id}")
             return None
 
-        deny_reason = reason or "Cancelled by API user."
+        deny_reason = reason or "Rejected by user."
+        # Return a clear, model-readable signal so the assistant can distinguish
+        # user denial from tool runtime failures.
+        deny_reason = f"Permission denied by user for shell_run: {deny_reason}"
         logger.warning(f"API mode denied shell_run: request_id={request_id} reason={deny_reason}")
         return deny_reason
 
@@ -341,15 +344,55 @@ def _render_event_line(
         return f"{ts_prefix}{COLOR_YELLOW}[PLAN]{COLOR_RESET}\n{plan_text}"
 
     if event_type == "status":
+        event_subtype = str(data.get("_event_type") or "")
         msg = str(data.get("message") or "")
         stage = data.get("stage")
         percent = data.get("percent")
+        request_id = data.get("request_id")
+        tool_name = data.get("tool_name")
+        allowed = data.get("allowed")
+        reason = data.get("reason")
 
         extras: list[str] = []
         if stage is not None:
             extras.append(f"stage={stage}")
         if percent is not None:
             extras.append(f"percent={percent}")
+
+        # Permission events are currently persisted under transcript "status".
+        # Render them as first-class permission events for readability.
+        if event_subtype == "permission_request":
+            return (
+                f"{ts_prefix}{COLOR_YELLOW}[EVENT]{COLOR_RESET} "
+                f"{COLOR_BLUE}permission_request{COLOR_RESET} "
+                f"tool={COLOR_CYAN}{tool_name or 'unknown'}{COLOR_RESET} "
+                f"request_id={request_id or '-'}"
+            )
+        if event_subtype == "permission_response":
+            decision = "allowed" if bool(allowed) else "denied"
+            reason_text = f" reason={reason}" if reason else ""
+            return (
+                f"{ts_prefix}{COLOR_YELLOW}[EVENT]{COLOR_RESET} "
+                f"{COLOR_BLUE}permission_response{COLOR_RESET} "
+                f"tool={COLOR_CYAN}{tool_name or 'unknown'}{COLOR_RESET} "
+                f"request_id={request_id or '-'} decision={decision}{reason_text}"
+            )
+
+        # Add meaningful fallback text when generic status.message is absent.
+        if not msg and request_id:
+            if allowed is None:
+                msg = (
+                    "permission_request"
+                    f" tool={tool_name or 'unknown'} request_id={request_id}"
+                )
+            else:
+                decision = "allowed" if bool(allowed) else "denied"
+                msg = (
+                    "permission_response"
+                    f" tool={tool_name or 'unknown'} request_id={request_id} decision={decision}"
+                )
+                if reason:
+                    msg += f" reason={reason}"
 
         extra_text = (" " + " ".join(extras)) if extras else ""
         return f"{ts_prefix}{COLOR_YELLOW}[EVENT]{COLOR_RESET} {COLOR_MAGENTA}status{COLOR_RESET}{extra_text} {msg}"

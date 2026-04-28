@@ -9,6 +9,10 @@ export class GGbotAPI {
   private ws: WebSocket | null = null;
   private eventHandlers: ((event: any) => void)[] = [];
   private wsConnectWaiters: { resolve: () => void; reject: (error: Error) => void }[] = [];
+  private wsResponseWaiters = new Map<
+    string,
+    { resolve: (payload: any) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
+  >();
 
   private constructor() {}
 
@@ -71,6 +75,14 @@ export class GGbotAPI {
     this.ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        if (data?.type === 'response' && typeof data.id === 'string') {
+          const waiter = this.wsResponseWaiters.get(data.id);
+          if (waiter) {
+            clearTimeout(waiter.timer);
+            this.wsResponseWaiters.delete(data.id);
+            waiter.resolve(data.payload);
+          }
+        }
         this.eventHandlers.forEach((handler) => handler(data));
       } catch (error) {
         this.eventHandlers.forEach((handler) => handler({
@@ -84,6 +96,11 @@ export class GGbotAPI {
       const waiters = [...this.wsConnectWaiters];
       this.wsConnectWaiters = [];
       waiters.forEach((waiter) => waiter.reject(new Error('WebSocket closed before opening')));
+      this.wsResponseWaiters.forEach((waiter) => {
+        clearTimeout(waiter.timer);
+        waiter.reject(new Error('WebSocket closed before receiving command response'));
+      });
+      this.wsResponseWaiters.clear();
       this.ws = null;
       setTimeout(() => this.connectWebSocket(), 3000); // Reconnect
     };
@@ -148,6 +165,35 @@ export class GGbotAPI {
     return commandId;
   }
 
+  async sendWSCommandAndWait(command: string, payload: any, timeoutMs: number = 20000): Promise<any> {
+    await this.waitForWebSocketOpen();
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected');
+    }
+    const commandId =
+      (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    const responsePromise = new Promise<any>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.wsResponseWaiters.delete(commandId);
+        reject(new Error(`命令超时: ${command}`));
+      }, timeoutMs);
+      this.wsResponseWaiters.set(commandId, { resolve, reject, timer });
+    });
+
+    this.ws.send(JSON.stringify({
+      type: 'command',
+      id: commandId,
+      command,
+      payload,
+      timestamp: Date.now() / 1000
+    }));
+
+    return responsePromise;
+  }
+
   async sendMessageWS(
     content: string,
     sessionId?: string,
@@ -168,13 +214,50 @@ export class GGbotAPI {
     });
   }
 
-  async sendPermissionResponse(requestId: string, allowed: boolean, sessionId?: string, reason?: string): Promise<string> {
-    return this.sendWSCommand('permission_response', {
+  async runDocxBuildWS(payload: {
+    manifest_path: string;
+    session_id?: string;
+    only_section_id?: string;
+    resume?: boolean;
+    write_state?: boolean;
+    state_path?: string;
+  }): Promise<string> {
+    return this.sendWSCommand('run_docx_build', payload);
+  }
+
+  async sendPermissionResponse(requestId: string, allowed: boolean, sessionId?: string, reason?: string): Promise<any> {
+    return this.sendWSCommandAndWait('permission_response', {
       request_id: requestId,
       allowed,
       session_id: sessionId,
       reason: reason || ''
     });
+  }
+
+  async executeToolWS(name: string, argumentsPayload: any, sessionId?: string): Promise<any> {
+    return this.sendWSCommandAndWait('execute_tool', {
+      name,
+      arguments: argumentsPayload,
+      session_id: sessionId
+    });
+  }
+
+  async buildDocumentChangeSetWS(before: string, after: string, documentId?: string, source?: string): Promise<any> {
+    return this.sendWSCommandAndWait('build_document_change_set', {
+      before,
+      after,
+      document_id: documentId,
+      source
+    });
+  }
+
+  getWorkspaceDocxUrl(path: string, cacheBust: boolean = true): string {
+    const url = new URL(`${BASE_URL}/api/v1/workspace/file`);
+    url.searchParams.set('path', path);
+    if (cacheBust) {
+      url.searchParams.set('_t', String(Date.now()));
+    }
+    return url.toString();
   }
 }
 

@@ -3,10 +3,23 @@ import { onMounted, onUnmounted, ref, nextTick, watch } from 'vue';
 import { chatStore } from '../stores/chat';
 import { api } from '../api/client';
 import MessageItem from '../components/MessageItem.vue';
+import DocxSidebar from '../components/DocxSidebar.vue';
 
 const inputMessage = ref('');
 const providerThinkingEnabled = ref(true);
 const chatScroll = ref<HTMLElement | null>(null);
+const docSidebarOpen = ref(true);
+const docSidebarRef = ref<any>(null);
+type PendingPermission = {
+  request_id: string;
+  tool_name: string;
+  arguments: any;
+  session_id: string;
+  created_ms?: number;
+  submitting?: boolean;
+  error?: string;
+};
+const pendingPermissions = ref<PendingPermission[]>([]);
 
 const scrollToBottom = async () => {
   await nextTick();
@@ -19,16 +32,17 @@ onMounted(async () => {
   await chatStore.fetchSessions();
   api.connectWebSocket();
   const unsub = api.onEvent((event) => {
-    if (event.type === 'event') {
-      handleGGEvent(event);
-      return;
-    }
     if (event.type === 'response') {
       handleWSResponse(event);
       return;
     }
     if (event.type === 'error') {
       handleWSError(event);
+      return;
+    }
+    const normalized = normalizeRuntimeEvent(event);
+    if (normalized) {
+      handleGGEvent(event);
     }
   });
   unsubscribeWS = unsub;
@@ -43,6 +57,7 @@ onUnmounted(() => {
 
 let unsubscribeWS: null | (() => void) = null;
 const pendingSendCommandIds = new Set<string>();
+const toolCallArgsById = new Map<string, any>();
 
 const createAssistantMessage = () => {
   chatStore.addMessage({
@@ -58,8 +73,59 @@ const getLastAssistant = () => {
   return lastMsg && lastMsg.role === 'assistant' ? lastMsg : null;
 };
 
+const normalizeRuntimeEvent = (event: any): { event_type: string; data: any } | null => {
+  if (!event || typeof event !== 'object') return null;
+  const typeCandidate = String(
+    event.event_type ||
+    event.eventType ||
+    event._event_type ||
+    event.type ||
+    ''
+  );
+  const dataCandidate = event.data ?? event.payload ?? {};
+  if (!typeCandidate) return null;
+  if (typeCandidate === 'event') {
+    const nestedType = String(
+      dataCandidate?.event_type ||
+      dataCandidate?.eventType ||
+      dataCandidate?._event_type ||
+      ''
+    );
+    const nestedData = dataCandidate?.data ?? dataCandidate?.payload ?? {};
+    if (!nestedType) return null;
+    return { event_type: nestedType, data: nestedData };
+  }
+  return { event_type: typeCandidate, data: dataCandidate };
+};
+
+const removePendingPermission = (requestId: string) => {
+  if (!requestId) return;
+  pendingPermissions.value = pendingPermissions.value.filter((item) => item.request_id !== requestId);
+};
+
+const applyPermissionDecisionToTools = (requestId: string, allowed: boolean, reason?: string) => {
+  if (!requestId) return;
+  for (let i = chatStore.messages.length - 1; i >= 0; i--) {
+    const msg = chatStore.messages[i];
+    if (!msg?.tools || msg.tools.length === 0) continue;
+    const tool = msg.tools.find(t => t.request_id && t.request_id === requestId);
+    if (!tool) continue;
+    tool.requires_permission = false;
+    if (allowed) {
+      tool.status = 'calling';
+      tool.result = tool.result || '已批准，等待执行结果...';
+    } else {
+      tool.status = 'error';
+      tool.result = reason || '已拒绝执行';
+    }
+    break;
+  }
+};
+
 const handleGGEvent = (event: any) => {
-  const { event_type, data } = event;
+  const normalized = normalizeRuntimeEvent(event);
+  if (!normalized) return;
+  const { event_type, data } = normalized;
   
   if (event_type === 'assistant_delta') {
     let lastMsg = getLastAssistant();
@@ -142,6 +208,9 @@ const handleGGEvent = (event: any) => {
           status: 'calling'
         });
       }
+      if (data.id) {
+        toolCallArgsById.set(String(data.id), data.arguments || {});
+      }
     }
   } else if (event_type === 'tool_result') {
     const lastMsg = chatStore.messages[chatStore.messages.length - 1];
@@ -158,6 +227,19 @@ const handleGGEvent = (event: any) => {
         }
       }
     }
+    if (!data.error && data.name === 'file_write') {
+      const toolArgs = data.id ? toolCallArgsById.get(String(data.id)) : undefined;
+      const path = typeof toolArgs?.path === 'string' ? toolArgs.path : '';
+      if (path && docSidebarRef.value && typeof docSidebarRef.value.applyBackendUpdateFromTool === 'function') {
+        docSidebarRef.value.applyBackendUpdateFromTool({
+          path,
+          source: 'tool_result:file_write'
+        });
+      }
+    }
+    if (data.id) {
+      toolCallArgsById.delete(String(data.id));
+    }
   } else if (event_type === 'turn_complete') {
     chatStore.isTyping = false;
   } else if (event_type === 'status') {
@@ -172,6 +254,23 @@ const handleGGEvent = (event: any) => {
     });
     chatStore.isTyping = false;
   } else if (event_type === 'permission_request') {
+    console.info('[permission] request received', data);
+    const requestId = String(data.request_id || '');
+    const promptSessionId = String(data.session_id || chatStore.currentSessionId || '');
+    if (requestId) {
+      const existingPrompt = pendingPermissions.value.find((item) => item.request_id === requestId);
+      if (!existingPrompt) {
+        pendingPermissions.value.push({
+          request_id: requestId,
+          tool_name: String(data.tool_name || 'unknown_tool'),
+          arguments: data.arguments || {},
+          session_id: promptSessionId,
+          created_ms: typeof data.created_ms === 'number' ? data.created_ms : undefined,
+          submitting: false,
+          error: '',
+        });
+      }
+    }
     const lastMsg = chatStore.messages[chatStore.messages.length - 1];
     if (lastMsg && lastMsg.role === 'assistant') {
       if (!lastMsg.tools) lastMsg.tools = [];
@@ -197,23 +296,10 @@ const handleGGEvent = (event: any) => {
       }
     }
   } else if (event_type === 'permission_response') {
-    const requestId = data.request_id;
-    for (let i = chatStore.messages.length - 1; i >= 0; i--) {
-      const msg = chatStore.messages[i];
-      if (!msg) continue;
-      if (!msg.tools || msg.tools.length === 0) continue;
-      const tool = msg.tools.find(t => t.request_id && t.request_id === requestId);
-      if (!tool) continue;
-      tool.requires_permission = false;
-      if (data.allowed) {
-        tool.status = 'calling';
-        tool.result = tool.result || '已批准，等待执行结果...';
-      } else {
-        tool.status = 'error';
-        tool.result = data.reason || '已拒绝执行';
-      }
-      break;
-    }
+    console.info('[permission] response received', data);
+    const requestId = String(data.request_id || '');
+    removePendingPermission(requestId);
+    applyPermissionDecisionToTools(requestId, Boolean(data.allowed), data.reason);
   } else if (event_type === 'session_update') {
     chatStore.fetchSessions();
   }
@@ -251,6 +337,29 @@ const updateSessionTitleLocally = (sessionId: string, title: string) => {
 };
 
 const handleWSResponse = (event: any) => {
+  if (event.command === 'permission_response') {
+    const payload = event.payload || {};
+    const requestId = String(payload.request_id || '');
+    if (payload.success === false) {
+      if (requestId) {
+        const failed = pendingPermissions.value.find((item) => item.request_id === requestId);
+        if (failed) {
+          failed.submitting = false;
+          failed.error = payload.message || '请求不存在或已过期';
+        }
+      }
+      chatStore.addMessage({
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: `❌ 权限确认失败: ${payload.message || '请求不存在或已过期'}`,
+        status: 'error'
+      });
+    } else {
+      removePendingPermission(requestId);
+      applyPermissionDecisionToTools(requestId, Boolean(payload.allowed), payload.reason);
+    }
+    return;
+  }
   if (event.command === 'stop_message') {
     const payload = event.payload || {};
     if (payload.success) {
@@ -290,6 +399,33 @@ const handleWSResponse = (event: any) => {
     }
   }
   chatStore.isTyping = false;
+};
+
+const decidePermissionPrompt = async (item: PendingPermission, allowed: boolean) => {
+  if (item.submitting) return;
+  item.error = '';
+  item.submitting = true;
+  try {
+    const sessionId = item.session_id || chatStore.currentSessionId || '';
+    if (!sessionId) {
+      throw new Error('缺少 session_id，无法提交权限决策');
+    }
+    const ack = await api.sendPermissionResponse(
+      item.request_id,
+      allowed,
+      sessionId,
+      allowed ? 'Approved from Vue permission dialog' : 'Rejected from Vue permission dialog'
+    );
+    if (!ack || ack.success === false) {
+      throw new Error(String(ack?.message || '权限确认未被后端接受'));
+    }
+    // Immediate UI update based on command ack; runtime event may arrive later.
+    removePendingPermission(item.request_id);
+    applyPermissionDecisionToTools(item.request_id, allowed, ack.reason);
+  } catch (err) {
+    item.error = String(err);
+    item.submitting = false;
+  }
 };
 
 const sendMessage = async () => {
@@ -446,7 +582,49 @@ watch(() => chatStore.messages.length, scrollToBottom);
           GGbot 可能会产生错误信息，请核实重要信息。
         </div>
       </footer>
+
+      <div v-if="pendingPermissions.length > 0" class="permission-float">
+        <div class="permission-float-header">
+          <span>权限确认</span>
+          <span class="count">{{ pendingPermissions.length }}</span>
+        </div>
+        <div
+          v-for="item in pendingPermissions"
+          :key="item.request_id"
+          class="permission-item"
+        >
+          <div class="permission-title">{{ item.tool_name }}</div>
+          <div class="permission-desc">request_id: {{ item.request_id }}</div>
+          <div class="permission-args">
+            <code>{{ JSON.stringify(item.arguments || {}) }}</code>
+          </div>
+          <div class="permission-actions">
+            <button
+              class="allow"
+              :disabled="item.submitting"
+              @click="decidePermissionPrompt(item, true)"
+            >
+              允许
+            </button>
+            <button
+              class="deny"
+              :disabled="item.submitting"
+              @click="decidePermissionPrompt(item, false)"
+            >
+              拒绝
+            </button>
+          </div>
+          <div v-if="item.error" class="permission-error">{{ item.error }}</div>
+        </div>
+      </div>
     </main>
+
+    <DocxSidebar
+      ref="docSidebarRef"
+      :open="docSidebarOpen"
+      :session-id="chatStore.currentSessionId"
+      @toggle="docSidebarOpen = !docSidebarOpen"
+    />
   </div>
 </template>
 
@@ -717,6 +895,115 @@ textarea {
   font-size: 12px;
   color: #999;
   margin-top: 12px;
+}
+
+.permission-float {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  width: 380px;
+  max-height: 55vh;
+  overflow: auto;
+  background: #ffffff;
+  border: 1px solid #e5e7ef;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+  z-index: 9999;
+}
+
+.permission-float-header {
+  position: sticky;
+  top: 0;
+  background: #f5f7ff;
+  border-bottom: 1px solid #e5e7ef;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  justify-content: space-between;
+}
+
+.permission-float-header .count {
+  display: inline-flex;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  align-items: center;
+  justify-content: center;
+  background: #dbe5ff;
+  color: #244bcf;
+  font-size: 12px;
+}
+
+.permission-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f0f1f6;
+}
+
+.permission-item:last-child {
+  border-bottom: none;
+}
+
+.permission-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.permission-desc {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #667085;
+}
+
+.permission-args {
+  margin-top: 6px;
+  background: #f6f7fb;
+  border-radius: 8px;
+  padding: 8px;
+  overflow-x: auto;
+}
+
+.permission-args code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #334155;
+}
+
+.permission-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.permission-actions button {
+  border: 1px solid #d8dbe7;
+  border-radius: 8px;
+  height: 30px;
+  padding: 0 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.permission-actions button.allow {
+  color: #0f7a3a;
+  background: #eefbf2;
+}
+
+.permission-actions button.deny {
+  color: #b42318;
+  background: #fff0f0;
+}
+
+.permission-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.permission-error {
+  margin-top: 6px;
+  color: #b42318;
+  font-size: 12px;
 }
 
 .loading {

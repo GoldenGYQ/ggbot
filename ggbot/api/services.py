@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import threading
@@ -21,9 +22,17 @@ from ..state.session_store import SessionStore
 from ..state.transcript import Transcript
 from ..models.protocol_models import ChatMessage
 from ..tools.context import ToolContext
+from ..workspace.permissions import ensure_under_root
 from ..providers.litellm_client import LiteLLMClient
 from ..skills import SkillResolver, build_skill_system_message
 from .document_changes import build_text_change_set
+from .doc_build import (
+    build_step_repair_suggestions,
+    build_docx_manifest_from_markdown,
+    default_state_path_from_manifest,
+    load_docx_manifest,
+    resolve_build_step_indexes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -870,6 +879,234 @@ class APIService:
             "document_id": document_id or "",
             "source": source or "agent",
             "change_set": change_set,
+        }
+
+    async def build_docx_manifest(
+        self,
+        *,
+        markdown_text: str,
+        docs_dir: str = "docs",
+        manifest_name: str = "doc_build_manifest.json",
+        docx_path: str = "docs/output.docx",
+        write_files: bool = True,
+    ) -> Dict[str, Any]:
+        self.add_event(
+            {
+                "type": "doc_build_stage",
+                "timestamp": time.time(),
+                "data": {
+                    "stage": "plan",
+                    "status": "started",
+                    "docs_dir": docs_dir,
+                    "docx_path": docx_path,
+                },
+            }
+        )
+        payload = build_docx_manifest_from_markdown(
+            markdown_text=markdown_text,
+            workspace_root=self.runtime.settings.workspace_root,
+            docs_dir=docs_dir,
+            manifest_name=manifest_name,
+            docx_path=docx_path,
+            write_files=write_files,
+        )
+        self.add_event(
+            {
+                "type": "doc_build_stage",
+                "timestamp": time.time(),
+                "data": {
+                    "stage": "plan",
+                    "status": "completed",
+                    "sections_written": payload.get("sections_written", 0),
+                    "warning_count": len(payload.get("quality_warnings", [])),
+                    "manifest_path": payload.get("manifest_path", ""),
+                },
+            }
+        )
+        return {"success": True, **payload}
+
+    async def run_docx_build(
+        self,
+        *,
+        manifest_path: str = "docs/doc_build_manifest.json",
+        session_id: str | None = None,
+        only_section_id: str | None = None,
+        resume: bool = True,
+        write_state: bool = True,
+        state_path: str | None = None,
+    ) -> Dict[str, Any]:
+        target_session_id = session_id or self.current_session_id
+        self.current_session_id = target_session_id
+        self.session_store.ensure_saved(target_session_id)
+        context = self._get_or_create_session_context(target_session_id)
+        tool_context = ToolContext(
+            session_id=target_session_id,
+            transcript=context.transcript,
+            workspace_root=self.runtime.settings.workspace_root,
+        )
+        manifest = load_docx_manifest(
+            workspace_root=self.runtime.settings.workspace_root,
+            manifest_path=manifest_path,
+        )
+        build_steps = (
+            manifest.get("build_steps")
+            if isinstance(manifest.get("build_steps"), list)
+            else []
+        )
+        effective_state_path = state_path or default_state_path_from_manifest(manifest_path)
+        state_file = ensure_under_root(
+            self.runtime.settings.workspace_root,
+            self.runtime.settings.workspace_root / effective_state_path,
+        )
+
+        state_data: Dict[str, Any] = {
+            "manifest_path": manifest_path,
+            "last_success_step": -1,
+            "failed_step": None,
+            "updated_at": time.time(),
+            "step_results": [],
+        }
+        if resume and state_file.exists():
+            try:
+                loaded = json.loads(state_file.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    state_data.update(loaded)
+            except Exception:
+                pass
+
+        start_index = int(state_data.get("last_success_step", -1)) + 1 if resume else 0
+        selected_indexes = resolve_build_step_indexes(
+            manifest=manifest,
+            only_section_id=only_section_id,
+            start_index=start_index,
+        )
+        if not selected_indexes:
+            return {
+                "success": True,
+                "session_id": target_session_id,
+                "manifest_path": manifest_path,
+                "state_path": str(state_file),
+                "message": "没有需要执行的 build_step",
+                "executed_steps": [],
+            }
+
+        self.add_event(
+            {
+                "type": "doc_build_stage",
+                "timestamp": time.time(),
+                "data": {
+                    "stage": "build",
+                    "status": "started",
+                    "manifest_path": manifest_path,
+                    "resume": resume,
+                    "only_section_id": only_section_id,
+                },
+            }
+        )
+
+        executed_steps: list[Dict[str, Any]] = []
+        success = True
+        error: str | None = None
+        repair_suggestions: list[Dict[str, Any]] = []
+
+        for idx in selected_indexes:
+            step = build_steps[idx] if idx < len(build_steps) else {}
+            step_name = str(step.get("step") or "")
+            step_args = step.get("args") if isinstance(step.get("args"), dict) else {}
+            if not step_name:
+                continue
+            try:
+                # 写操作预检查：先校验目标路径在 workspace 内，并检查必要文件存在性。
+                if step_name.startswith("docx_add_") or step_name in {"docx_replace_text"}:
+                    path_arg = step_args.get("path")
+                    if isinstance(path_arg, str) and path_arg:
+                        target_docx = ensure_under_root(
+                            self.runtime.settings.workspace_root,
+                            self.runtime.settings.workspace_root / path_arg,
+                        )
+                        if not target_docx.exists():
+                            raise FileNotFoundError(f"DOCX不存在: {target_docx}")
+                    if step_name.endswith("_from_file"):
+                        source_arg = step_args.get("text_file_path")
+                        if isinstance(source_arg, str) and source_arg:
+                            source_text = ensure_under_root(
+                                self.runtime.settings.workspace_root,
+                                self.runtime.settings.workspace_root / source_arg,
+                            )
+                            if not source_text.exists():
+                                raise FileNotFoundError(f"文本文件不存在: {source_text}")
+                result = await asyncio.to_thread(
+                    self.runtime.registry.call,
+                    step_name,
+                    step_args,
+                    ctx=tool_context,
+                )
+                executed_steps.append(
+                    {
+                        "index": idx,
+                        "step": step_name,
+                        "status": "ok",
+                        "result": result if isinstance(result, (str, int, float, bool, dict, list)) else str(result),
+                    }
+                )
+                state_data["last_success_step"] = idx
+                state_data["failed_step"] = None
+                step_results = state_data.get("step_results")
+                if not isinstance(step_results, list):
+                    step_results = []
+                    state_data["step_results"] = step_results
+                step_results.append({"index": idx, "step": step_name, "status": "ok"})
+                state_data["updated_at"] = time.time()
+                if write_state:
+                    state_file.parent.mkdir(parents=True, exist_ok=True)
+                    state_file.write_text(
+                        json.dumps(state_data, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+            except Exception as exc:
+                success = False
+                error = str(exc)
+                repair_suggestions = build_step_repair_suggestions(
+                    step_name=step_name,
+                    step_args=step_args,
+                    error=error,
+                )
+                executed_steps.append({"index": idx, "step": step_name, "status": "failed", "error": error})
+                state_data["failed_step"] = idx
+                state_data["updated_at"] = time.time()
+                if write_state:
+                    state_file.parent.mkdir(parents=True, exist_ok=True)
+                    state_file.write_text(
+                        json.dumps(state_data, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                break
+
+        self.add_event(
+            {
+                "type": "doc_build_stage",
+                "timestamp": time.time(),
+                "data": {
+                    "stage": "build",
+                    "status": "completed" if success else "failed",
+                    "manifest_path": manifest_path,
+                    "state_path": str(state_file),
+                    "executed_count": len(executed_steps),
+                    "error": error,
+                    "repair_suggestions": repair_suggestions,
+                },
+            }
+        )
+        return {
+            "success": success,
+            "session_id": target_session_id,
+            "manifest_path": manifest_path,
+            "state_path": str(state_file),
+            "resume": resume,
+            "only_section_id": only_section_id,
+            "executed_steps": executed_steps,
+            "error": error,
+            "repair_suggestions": repair_suggestions,
         }
 
     async def get_config(self) -> Dict[str, Any]:

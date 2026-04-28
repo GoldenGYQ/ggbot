@@ -1,0 +1,23 @@
+{
+  "manifest_path": "docs/doc_build_manifest_1777352174254.json",
+  "last_success_step": 2,
+  "failed_step": null,
+  "updated_at": 1777352174.33361,
+  "step_results": [
+    {
+      "index": 0,
+      "step": "docx_create",
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "step": "docx_add_heading",
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "step": "docx_add_paragraph_from_file",
+      "status": "ok"
+    }
+  ]
+}

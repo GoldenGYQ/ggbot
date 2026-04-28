@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from ..app.app_bootstrap import AgentRuntime, ensure_message_bootstrap
 from ..models.protocol_models import ChatMessage
+from ..runtime.history_repair import auto_heal_missing_tool_messages, sanitize_orphan_tool_messages
 from ..state.transcript import Transcript, load_model_messages, open_session
 
 
@@ -66,6 +67,10 @@ class SessionRuntimeManager:
             transcript,
             system_message=self._runtime.system_message,
         )
+        # Repair legacy/out-of-order tool traces loaded from transcript so
+        # provider payload is valid before the next run starts.
+        sanitize_orphan_tool_messages(messages=messages)
+        auto_heal_missing_tool_messages(messages=messages)
         context = SessionExecutionContext(
             session_id=session_id,
             transcript=transcript,

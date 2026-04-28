@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ggbot.cli import _make_api_shell_confirm_callback
-from ggbot.tools.shell_tool import make_shell_tool
+from ggbot import _make_api_shell_confirm_callback
+from ggbot.tools.shell_tool import _validate_command_paths, make_shell_tool
 
 
 def test_shell_confirm_callback_cancels(tmp_path: Path) -> None:
@@ -34,3 +34,8 @@ def test_api_shell_confirm_callback_approves(monkeypatch: pytest.MonkeyPatch) ->
     out = callback("echo hi")
 
     assert out is None
+
+
+def test_validate_command_paths_allows_windows_dir_switch(tmp_path: Path) -> None:
+    # Regression: '/B' in `dir /B` should be treated as a switch, not a filesystem path.
+    _validate_command_paths("echo GGbot is running! && dir /B", tmp_path)

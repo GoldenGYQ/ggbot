@@ -403,6 +403,172 @@ class TestAPIServer:
         assert payload["document_id"] == "doc-ws"
         assert payload["change_set"]["summary"]["total_ops"] >= 1
 
+    def test_build_docx_manifest_rest(self, test_client):
+        """测试 docx 清单构建 REST 接口。"""
+        markdown_text = """```docx-plan
+{"title":"测试文档","sections":[{"id":"s1","heading":"开场","level":1,"source_file":"docs/tmp/s1.md"}],"artifacts":[],"build_steps":[]}
+```
+
+```docx-section id=s1 path=docs/tmp/s1.md
+这是第一节正文内容。
+```"""
+        response = test_client.post(
+            "/api/v1/documents/docx-manifest",
+            json={"markdown_text": markdown_text, "write_files": False},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["manifest"]["schema_version"] == "doc_build@v1"
+        assert payload["sections_written"] == 1
+        events = test_client.get("/api/v1/events?limit=20").json()["events"]
+        assert any(event["type"] == "doc_build_stage" for event in events)
+
+    def test_build_docx_manifest_ws_command(self, test_client):
+        """测试 docx 清单构建 WS 命令。"""
+        markdown_text = """```docx-section id=s1 path=docs/tmp/s1.md
+短文案
+```"""
+        messages = _ws_command(
+            test_client,
+            "build_docx_manifest",
+            {"markdown_text": markdown_text, "write_files": False},
+        )
+        response = messages[-1]
+        assert response["type"] == "response"
+        payload = response["payload"]
+        assert payload["success"] is True
+        assert payload["manifest"]["schema_version"] == "doc_build@v1"
+
+    def test_run_docx_build_rest_resume(self, test_client, mock_runtime):
+        """测试 docx build 执行与断点续跑。"""
+        def fake_registry_call(name, arguments, ctx=None):
+            if name == "docx_create":
+                target = Path(arguments["path"])
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("mock docx", encoding="utf-8")
+            return f"ok:{name}"
+
+        mock_runtime.registry.call = fake_registry_call
+
+        tag = str(int(time.time() * 1000))
+        manifest_name = f"doc_build_manifest_{tag}.json"
+        markdown_text = f"""```docx-plan
+{{"title":"测试文档","sections":[{{"id":"s1","heading":"开场","level":1,"source_file":"docs/tmp/s1_{tag}.md"}}],"artifacts":[],"build_steps":[]}}
+```
+
+```docx-section id=s1 path=docs/tmp/s1_{tag}.md
+这是第一节正文内容。
+```"""
+        build_resp = test_client.post(
+            "/api/v1/documents/docx-manifest",
+            json={"markdown_text": markdown_text, "manifest_name": manifest_name, "write_files": True},
+        )
+        assert build_resp.status_code == 200
+        run_resp = test_client.post(
+            "/api/v1/documents/docx-build/run",
+            json={"manifest_path": f"docs/{manifest_name}", "resume": False, "write_state": True},
+        )
+        assert run_resp.status_code == 200
+        run_payload = run_resp.json()
+        assert run_payload["success"] is True
+        assert len(run_payload["executed_steps"]) >= 1
+
+        rerun_resp = test_client.post(
+            "/api/v1/documents/docx-build/run",
+            json={"manifest_path": f"docs/{manifest_name}", "resume": True, "write_state": True},
+        )
+        assert rerun_resp.status_code == 200
+        rerun_payload = rerun_resp.json()
+        assert rerun_payload["success"] is True
+        assert rerun_payload["executed_steps"] == []
+
+    def test_run_docx_build_ws_section_retry(self, test_client, mock_runtime):
+        """测试 docx build 按章节重跑。"""
+        def fake_registry_call(name, arguments, ctx=None):
+            if name == "docx_create":
+                target = Path(arguments["path"])
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("mock docx", encoding="utf-8")
+            return f"ok:{name}"
+
+        mock_runtime.registry.call = fake_registry_call
+
+        tag = str(int(time.time() * 1000))
+        manifest_name = f"doc_build_manifest_ws_{tag}.json"
+        markdown_text = f"""```docx-plan
+{{"title":"测试文档","sections":[{{"id":"s1","heading":"开场","level":1,"source_file":"docs/tmp/s1_{tag}.md"}}],"artifacts":[],"build_steps":[]}}
+```
+
+```docx-section id=s1 path=docs/tmp/s1_{tag}.md
+这是第一节正文内容。
+```"""
+        build_resp = test_client.post(
+            "/api/v1/documents/docx-manifest",
+            json={"markdown_text": markdown_text, "manifest_name": manifest_name, "write_files": True},
+        )
+        assert build_resp.status_code == 200
+        messages = _ws_command(
+            test_client,
+            "run_docx_build",
+            {
+                "manifest_path": f"docs/{manifest_name}",
+                "only_section_id": "s1",
+                "resume": False,
+                "write_state": False,
+            },
+        )
+        response = messages[-1]
+        assert response["type"] == "response"
+        payload = response["payload"]
+        assert payload["success"] is True
+        assert payload["only_section_id"] == "s1"
+        assert len(payload["executed_steps"]) >= 1
+
+    def test_run_docx_build_failure_returns_repair_suggestions(self, test_client, mock_runtime):
+        """测试 build 失败时返回可执行修复建议。"""
+        def fake_registry_call(name, arguments, ctx=None):
+            if name == "docx_create":
+                target = Path(arguments["path"])
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("mock docx", encoding="utf-8")
+            return f"ok:{name}"
+
+        mock_runtime.registry.call = fake_registry_call
+
+        tag = str(int(time.time() * 1000))
+        manifest_name = f"doc_build_manifest_fail_{tag}.json"
+        markdown_text = f"""```docx-plan
+{{"title":"测试文档","sections":[{{"id":"s1","heading":"开场","level":1,"source_file":"docs/tmp/missing_{tag}.md"}}],"artifacts":[],"build_steps":[]}}
+```
+
+```docx-section id=s1 path=docs/tmp/missing_{tag}.md
+这是第一节正文内容。
+```"""
+        build_resp = test_client.post(
+            "/api/v1/documents/docx-manifest",
+            json={"markdown_text": markdown_text, "manifest_name": manifest_name, "write_files": True},
+        )
+        assert build_resp.status_code == 200
+        delete_source = Path("docs") / "tmp" / f"missing_{tag}.md"
+        if delete_source.exists():
+            delete_source.unlink()
+
+        run_resp = test_client.post(
+            "/api/v1/documents/docx-build/run",
+            json={"manifest_path": f"docs/{manifest_name}", "resume": False, "write_state": False},
+        )
+        assert run_resp.status_code == 200
+        run_payload = run_resp.json()
+        assert run_payload["success"] is False
+        assert len(run_payload["repair_suggestions"]) >= 1
+        assert run_payload["repair_suggestions"][0]["tool"] in {
+            "file_write",
+            "docx_create",
+            "docx_add_paragraph_from_file",
+            "docx_add_heading",
+        }
+
     def test_get_recent_events_reflects_runtime_event_stream(self, test_client, mock_runtime):
         """测试最近事件来自主执行事件流，而不是全局总线旁路。"""
         mock_result = MagicMock()
