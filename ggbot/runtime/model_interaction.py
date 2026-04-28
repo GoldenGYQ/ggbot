@@ -221,7 +221,7 @@ def perform_model_turn(
             )
 
     def on_raw_chunk(chunk: dict[str, Any]) -> None:
-        transcript.append("provider_chunk", {"chunk": chunk})
+        # transcript.append("provider_chunk", {"chunk": chunk})
         add_event(
             runtime_event("provider_chunk", {"chunk": chunk}),
             include_in_result=False,

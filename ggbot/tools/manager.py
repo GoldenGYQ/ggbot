@@ -7,6 +7,7 @@ from ..app.config import Settings
 from .context import ToolContext
 from .file_tools import make_file_tools
 from .jobs_tool import make_job_tools
+from .docx_tools import make_docx_tools
 from .registry import ToolRegistry
 from .shell_tool import make_shell_tool
 from .shell_stream_tool import make_shell_stream_tool
@@ -101,6 +102,19 @@ class ToolManager:
         # Web工具
         web_search, web_fetch = make_web_tools()
 
+        # DOCX工具
+        (
+            docx_create,
+            docx_add_paragraph,
+            docx_add_paragraph_from_file,
+            docx_add_heading,
+            docx_add_heading_from_file,
+            docx_add_table,
+            docx_replace_text,
+            docx_read_outline,
+            docx_save_as,
+        ) = make_docx_tools(workspace_root=self._settings.workspace_root)
+
         # 注册所有工具
         self._registry.register_all(
             (
@@ -119,6 +133,15 @@ class ToolManager:
                 get_timezone_list,
                 web_search,
                 web_fetch,
+                docx_create,
+                docx_add_paragraph,
+                docx_add_paragraph_from_file,
+                docx_add_heading,
+                docx_add_heading_from_file,
+                docx_add_table,
+                docx_replace_text,
+                docx_read_outline,
+                docx_save_as,
             )
         )
 

@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # Thinking/Reasoning functionality
     thinking_enabled: bool = Field(default=False, alias="GGBOT_THINKING_ENABLED")
 
+    # Skills
+    skills_enabled: bool = Field(default=True, alias="GGBOT_SKILLS_ENABLED")
+    skills_dir: Path | None = Field(default=None, alias="GGBOT_SKILLS_DIR")
+
     def resolved_transcript_dir(self) -> Path:
         if self.transcript_dir is not None:
             return self.transcript_dir
@@ -144,6 +148,8 @@ class Settings(BaseSettings):
         apply("GGBOT_SHELL_MAX_OUTPUT_CHARS", "shell_max_output_chars", kind="int")
 
         apply("GGBOT_THINKING_ENABLED", "thinking_enabled", kind="bool")
+        apply("GGBOT_SKILLS_ENABLED", "skills_enabled", kind="bool")
+        apply("GGBOT_SKILLS_DIR", "skills_dir", kind="path_or_none")
 
     @staticmethod
     def _apply_if_env_missing(settings: "Settings", env_name: str, attr: str, value: Any) -> None:
@@ -205,6 +211,11 @@ class Settings(BaseSettings):
         )
 
         cls._apply_if_env_missing(settings, "GGBOT_THINKING_ENABLED", "thinking_enabled", ggbot.get("thinking_enabled"))
+        cls._apply_if_env_missing(settings, "GGBOT_SKILLS_ENABLED", "skills_enabled", ggbot.get("skills_enabled"))
+
+        skills_dir = ggbot.get("skills_dir")
+        if skills_dir is not None and "GGBOT_SKILLS_DIR" not in os.environ:
+            settings.skills_dir = Path(str(skills_dir))
 
 
 def _read_dotenv_file(path: Path) -> dict[str, str]:

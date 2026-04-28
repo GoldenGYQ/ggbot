@@ -51,6 +51,8 @@ def mock_runtime():
     settings.max_tool_calls_per_tool = 12
     settings.max_tool_calls_same_args = 3
     settings.thinking_enabled = False
+    settings.skills_enabled = True
+    settings.skills_dir = None
     settings.shell_confirm = True
     settings.resolved_transcript_dir.return_value = transcript_dir
 
@@ -116,6 +118,8 @@ class TestAPIServer:
         assert data["workspace_root"] == str(mock_runtime.settings.workspace_root)
         assert data["session_id"] == mock_runtime.session_id
         assert "has_openai_api_key" in data
+        assert data["skills_enabled"] is True
+        assert data["skills_dir"] is None
 
     def test_list_sessions(self, test_client):
         """测试获取会话列表"""
@@ -363,6 +367,42 @@ class TestAPIServer:
         assert data["limit"] == 10
         assert isinstance(data["events"], list)
 
+    def test_build_document_change_set_rest(self, test_client):
+        """测试文档改动集 REST 接口。"""
+        response = test_client.post(
+            "/api/v1/documents/change-set",
+            json={
+                "before": "第一行\n第二行\n",
+                "after": "第一行\n第二行(改)\n第三行\n",
+                "document_id": "doc-1",
+                "source": "agent",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["document_id"] == "doc-1"
+        assert data["change_set"]["version"] == "change_set@v1"
+        assert data["change_set"]["summary"]["total_ops"] >= 1
+
+    def test_build_document_change_set_ws_command(self, test_client):
+        """测试文档改动集 WS 命令。"""
+        messages = _ws_command(
+            test_client,
+            "build_document_change_set",
+            {
+                "before": "A\nB\n",
+                "after": "A\nC\n",
+                "document_id": "doc-ws",
+            },
+        )
+        response = messages[-1]
+        assert response["type"] == "response"
+        payload = response["payload"]
+        assert payload["success"] is True
+        assert payload["document_id"] == "doc-ws"
+        assert payload["change_set"]["summary"]["total_ops"] >= 1
+
     def test_get_recent_events_reflects_runtime_event_stream(self, test_client, mock_runtime):
         """测试最近事件来自主执行事件流，而不是全局总线旁路。"""
         mock_result = MagicMock()
@@ -495,7 +535,8 @@ class TestAPIServer:
         payload = {
             "openai_model": "gpt-4-turbo",
             "max_turns": 10,
-            "thinking_enabled": True
+            "thinking_enabled": True,
+            "skills_enabled": False,
         }
         response = test_client.put("/api/v1/config", json=payload)
         assert response.status_code == 200
@@ -505,6 +546,7 @@ class TestAPIServer:
         assert data["openai_model"] == "gpt-4-turbo"
         assert data["max_turns"] == 10
         assert data["thinking_enabled"] is True
+        assert data["skills_enabled"] is False
 
     def test_invalid_session_id(self, test_client):
         """测试无效的会话ID"""

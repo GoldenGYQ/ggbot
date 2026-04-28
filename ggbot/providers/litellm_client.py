@@ -36,6 +36,56 @@ def _to_dict(obj: Any) -> dict[str, Any]:
             pass
     return {}
 
+
+def _sanitize_openai_tool_sequence(payload_messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Repair invalid tool-message ordering for OpenAI-compatible providers.
+
+    OpenAI requires:
+    - role=tool must follow an assistant message with tool_calls
+    - tool_call_id must belong to the currently pending tool_calls
+    """
+    repaired: list[dict[str, Any]] = []
+    pending_ids: set[str] | None = None
+
+    for msg in payload_messages:
+        role = msg.get("role")
+
+        if role == "assistant":
+            tool_calls = msg.get("tool_calls") or []
+            ids: set[str] = set()
+            for tc in tool_calls:
+                tc_id = (tc or {}).get("id")
+                if isinstance(tc_id, str) and tc_id:
+                    ids.add(tc_id)
+            pending_ids = ids or None
+            repaired.append(msg)
+            continue
+
+        if role == "tool":
+            tool_call_id = msg.get("tool_call_id")
+            if pending_ids is None or not isinstance(tool_call_id, str) or tool_call_id not in pending_ids:
+                repaired.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "History repair: invalid tool message was converted to system text.\n"
+                            f"tool_call_id={tool_call_id!r}\n\n{msg.get('content', '')}"
+                        ),
+                    }
+                )
+                continue
+
+            pending_ids.remove(tool_call_id)
+            if not pending_ids:
+                pending_ids = None
+            repaired.append(msg)
+            continue
+
+        pending_ids = None
+        repaired.append(msg)
+
+    return repaired
+
 '''
 合并工具调用增量
 '''
@@ -120,6 +170,7 @@ class LiteLLMClient:
                 if "content" in msg_dict:
                     msg_dict["content"] = f"[Thinking] {msg_dict['content']}"
             payload_messages.append(msg_dict)
+        payload_messages = _sanitize_openai_tool_sequence(payload_messages)
 
         # Use streaming so we can surface incremental text.
         try:

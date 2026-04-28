@@ -27,6 +27,7 @@ from ggbot.app.app_bootstrap import (
     switch_runtime_session,
 )
 from ggbot.events.runtime_events import consume_runtime_events
+from ggbot.skills import SkillResolver, build_skill_system_message
 from ggbot.state.session_store import SessionStore
 from ggbot.models.protocol_models import ChatMessage
 from ggbot.models.runtime_models import RuntimeEvent, RuntimeEventType, SessionState, PermissionDecision
@@ -122,6 +123,7 @@ class GGbotTui(App[None]):
     def __init__(self, runtime: AgentRuntime) -> None:
         super().__init__()
         self.runtime = runtime
+        self._skill_resolver = SkillResolver(settings=self.runtime.settings)
         self._assistant_stream_buffer: str | None = None
         self._pet: PetBones = PetBones(species='duck')
         self._pending_shell_confirm: tuple[str, Event, dict[str, str | None]] | None = None
@@ -846,6 +848,7 @@ class GGbotTui(App[None]):
                     max_tool_calls_same_args=self.runtime.settings.max_tool_calls_same_args,
                 ),
                 thinking_enabled=self._thinking_enabled,
+                request_system_message=build_skill_system_message(self._skill_resolver.resolve(user_text)),
             )
 
             # 使用增强的事件消费函数

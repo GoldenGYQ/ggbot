@@ -22,6 +22,8 @@ from ..state.transcript import Transcript
 from ..models.protocol_models import ChatMessage
 from ..tools.context import ToolContext
 from ..providers.litellm_client import LiteLLMClient
+from ..skills import SkillResolver, build_skill_system_message
+from .document_changes import build_text_change_set
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ class APIService:
 
     def __init__(self, runtime: AgentRuntime):
         self.runtime = runtime
+        self.skill_resolver = SkillResolver(settings=runtime.settings)
         self.session_store = SessionStore.load(
             self.runtime.settings.resolved_transcript_dir()
         )
@@ -61,6 +64,31 @@ class APIService:
 
     def _get_or_create_session_context(self, session_id: str) -> SessionExecutionContext:
         return self.runtime_manager.get_or_create_context(session_id)
+
+    @staticmethod
+    def _count_invalid_tool_sequence(messages: list[ChatMessage]) -> int:
+        invalid = 0
+        pending_ids: set[str] | None = None
+        for msg in messages:
+            if msg.role == "assistant" and msg.tool_calls:
+                pending_ids = {tc.id for tc in msg.tool_calls}
+                continue
+
+            if msg.role == "tool":
+                if pending_ids is None:
+                    invalid += 1
+                    continue
+                tcid = msg.tool_call_id
+                if tcid is None or tcid not in pending_ids:
+                    invalid += 1
+                    continue
+                pending_ids.remove(tcid)
+                if not pending_ids:
+                    pending_ids = None
+                continue
+
+            pending_ids = None
+        return invalid
 
     def _resolve_provider_client(self, provider_thinking: Optional[bool]) -> tuple[Any, str]:
         """Resolve per-request provider client without mutating global settings."""
@@ -511,6 +539,8 @@ class APIService:
             else thinking_enabled
         )
         request_client, provider_model = self._resolve_provider_client(provider_thinking)
+        skill_resolution = self.skill_resolver.resolve(content)
+        request_skill_message = build_skill_system_message(skill_resolution)
         temporary_client = request_client is not self.runtime.client
         stop_signal = threading.Event()
         self._stop_signals[target_session_id] = stop_signal
@@ -574,6 +604,14 @@ class APIService:
 
         try:
             async with self.runtime_manager.get_lock(target_session_id):
+                invalid_tool_msgs = self._count_invalid_tool_sequence(context.messages)
+                if invalid_tool_msgs > 0:
+                    logger.warning(
+                        "Session %s has %d invalid tool message(s) before provider call; "
+                        "history repair will sanitize payload.",
+                        target_session_id,
+                        invalid_tool_msgs,
+                    )
                 result = await asyncio.to_thread(
                     run_query,
                     client=request_client,
@@ -593,6 +631,7 @@ class APIService:
                     thinking_enabled=effective_thinking_enabled,
                     event_callback=combined_event_callback,
                     should_stop=stop_signal.is_set,
+                    request_system_message=request_skill_message,
                 )
 
             # 更新会话统计
@@ -628,6 +667,7 @@ class APIService:
                 "title": title,
                 "provider_model": provider_model,
                 "provider_thinking": provider_thinking,
+                "active_skills": [skill.name for skill in skill_resolution.skills],
                 "events": events_collector.get_events(),
                 "final_response": events_collector.get_final_response(),
                 "has_thinking": events_collector.has_thinking,
@@ -816,6 +856,22 @@ class APIService:
 
     # ==================== 配置管理 ====================
 
+    async def build_document_change_set(
+        self,
+        *,
+        before: str,
+        after: str,
+        document_id: str | None = None,
+        source: str | None = None,
+    ) -> Dict[str, Any]:
+        change_set = build_text_change_set(before=before, after=after)
+        return {
+            "success": True,
+            "document_id": document_id or "",
+            "source": source or "agent",
+            "change_set": change_set,
+        }
+
     async def get_config(self) -> Dict[str, Any]:
         """获取当前配置"""
         settings = self.runtime.settings
@@ -830,6 +886,8 @@ class APIService:
             "max_tool_calls_per_tool": settings.max_tool_calls_per_tool,
             "max_tool_calls_same_args": settings.max_tool_calls_same_args,
             "thinking_enabled": settings.thinking_enabled,
+            "skills_enabled": settings.skills_enabled,
+            "skills_dir": str(settings.skills_dir) if settings.skills_dir is not None else None,
             "shell_confirm": settings.shell_confirm,
             "transcript_dir": str(settings.resolved_transcript_dir()),
             "session_id": self.current_session_id

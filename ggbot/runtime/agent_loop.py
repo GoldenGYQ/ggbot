@@ -103,6 +103,7 @@ def run_query(
     thinking_enabled: bool = False,
     event_callback: Callable[[RuntimeEvent], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
+    request_system_message: str | None = None,
 ) -> QueryResult:
     """执行一轮带工具调用能力的对话主循环。
 
@@ -149,6 +150,10 @@ def run_query(
 
     def is_interrupted() -> bool:
         return bool(should_stop is not None and should_stop())
+
+    if request_system_message and request_system_message.strip():
+        messages.append(ChatMessage(role="system", content=request_system_message.strip()))
+        transcript.append("model_message", messages[-1].model_dump(exclude_none=True))
 
     messages.append(ChatMessage(role="user", content=user_text))
     transcript.append("model_message", messages[-1].model_dump(exclude_none=True))

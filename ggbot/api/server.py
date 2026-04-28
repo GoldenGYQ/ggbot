@@ -89,6 +89,8 @@ class ConfigUpdateRequest(BaseModel):
     max_tool_calls_per_tool: Optional[int] = None
     max_tool_calls_same_args: Optional[int] = None
     thinking_enabled: Optional[bool] = None
+    skills_enabled: Optional[bool] = None
+    skills_dir: Optional[str] = None
     shell_confirm: Optional[bool] = None
 
 
@@ -106,6 +108,14 @@ class WebSocketMessage(BaseModel):
     id: Optional[str] = None
     timestamp: float = Field(default_factory=time.time)
     payload: Optional[Dict[str, Any]] = None
+
+
+class DocumentChangeSetRequest(BaseModel):
+    """构建文档改动集请求"""
+    before: str = ""
+    after: str = ""
+    document_id: Optional[str] = None
+    source: Optional[str] = None
 
 
 # ==================== 异常日志装饰器 ====================
@@ -332,6 +342,10 @@ class APIServer:
         async def get_recent_events(limit: int = 100):
             return await self._handle_get_recent_events(limit)
 
+        @self.app.post("/api/v1/documents/change-set")
+        async def build_document_change_set(request: DocumentChangeSetRequest):
+            return await self._handle_build_document_change_set(request)
+
         # DEPRECATED (Transport split): HTTP permission response endpoint is disabled.
         # Permission decisions must go through WS `permission_response` command.
         # Legacy code kept for reference (do not delete):
@@ -514,6 +528,17 @@ class APIServer:
                 reason=str(reason or ""),
                 actor_connection_id=connection_id,
                 actor_session_id=str(session_id),
+            )
+        elif command == "build_document_change_set":
+            return await self.api_service.build_document_change_set(
+                before=str(payload.get("before") or ""),
+                after=str(payload.get("after") or ""),
+                document_id=(
+                    str(payload.get("document_id"))
+                    if payload.get("document_id") is not None
+                    else None
+                ),
+                source=(str(payload.get("source")) if payload.get("source") is not None else None),
             )
         else:
             raise ValueError(f"未知命令: {command}")
@@ -704,6 +729,18 @@ class APIServer:
     async def _handle_get_recent_events(self, limit: int) -> Dict[str, Any]:
         """处理获取最近事件请求"""
         return await self.api_service.get_recent_events(limit)
+
+    @log_exceptions(logger)
+    async def _handle_build_document_change_set(
+        self, request: DocumentChangeSetRequest
+    ) -> Dict[str, Any]:
+        """处理构建文档改动集请求"""
+        return await self.api_service.build_document_change_set(
+            before=request.before,
+            after=request.after,
+            document_id=request.document_id,
+            source=request.source,
+        )
 
     @log_exceptions(logger)
     async def _handle_permission_response(self, request: PermissionResponseRequest) -> Dict[str, Any]:

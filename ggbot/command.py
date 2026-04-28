@@ -16,6 +16,7 @@ from ggbot.app.app_bootstrap import create_agent_bootstrap, create_app_session
 from ggbot.app.config import Settings
 from ggbot.api.permission_manager import get_permission_manager
 from ggbot.events.runtime_events import consume_runtime_events
+from ggbot.skills import SkillResolver, build_skill_system_message
 from ggbot.tools.registry import ToolRegistry
 from ggbot.state.transcript import Transcript
 from ggbot.models.protocol_models import ChatMessage
@@ -617,6 +618,7 @@ def chat(
         thinking_enabled=thinking_enabled,
     )
     runtime = bootstrap.runtime
+    skill_resolver = SkillResolver(settings=settings)
 
     try:
         tool_context = bootstrap.tool_manager.create_tool_context(
@@ -640,6 +642,7 @@ def chat(
                 max_tool_calls_same_args=settings.max_tool_calls_same_args,
             ),
             thinking_enabled=thinking_enabled,
+            request_system_message=build_skill_system_message(skill_resolver.resolve(prompt)),
         )
         consume_runtime_events(
             result.events,
@@ -689,6 +692,7 @@ def repl(
         thinking_enabled=thinking_enabled,
     )
     runtime = bootstrap.runtime
+    skill_resolver = SkillResolver(settings=settings)
 
     print(f"GGbot REPL  session_id={session_id}")
     print("Type /help for commands. Ctrl+C to exit.")
@@ -730,6 +734,7 @@ def repl(
                     max_tool_calls_same_args=settings.max_tool_calls_same_args,
                 ),
                 thinking_enabled=thinking_enabled,
+                request_system_message=build_skill_system_message(skill_resolver.resolve(line)),
             )
             consume_runtime_events(
                 result.events,

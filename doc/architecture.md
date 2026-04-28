@@ -78,6 +78,48 @@ sequenceDiagram
 
 一句话记忆：`AgentRuntime` 管执行，`RuntimeEvent` 管过程可见，`Transcript` 管事实留痕。
 
+### 3.2 Skill 触发信令流程
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API as Entry(或 CLI/TUI)
+    participant SR as SkillResolver
+    participant AG as AgentLoop(run_query)
+    participant LLM as Model
+    participant TM as ToolManager
+    participant TR as Transcript
+
+    C->>API: user_text
+    API->>SR: resolve(user_text)
+    SR-->>API: SkillResolution(matched/skills/scores)
+    API->>API: build_skill_system_message(resolution)
+    API->>AG: run_query(..., request_system_message=skill_msg)
+
+    AG->>LLM: 带 skill guidance 的请求
+    LLM-->>AG: 增量输出/工具调用
+    alt 需要工具
+        AG->>TM: execute_tool
+        TM-->>AG: tool_result
+    end
+    AG->>TR: append(model/tool events)
+    AG-->>API: final_response + events
+    API-->>C: type=event / type=response (+ active_skills)
+```
+
+信号分层（从触发到执行）：
+
+- 路由信号：`SkillResolution`（是否命中、命中哪些 skill、分数）
+- 注入信号：`request_system_message`（本轮请求级别的 skill 指导）
+- 过程信号：`RuntimeEvent`（实时流给 UI/API）
+- 事实信号：`Transcript`（最终落盘审计）
+
+关键约束：
+
+- skill 只在“请求前路由 + 请求内注入”生效，不污染全局 system prompt。
+- 未命中 skill 时，`request_system_message=None`，主链路保持原行为。
+- 多入口一致：API / CLI / TUI 都在调用 `run_query` 前执行 skill 解析。
+
 ### 3.1 AgentLoop 内部（细节图）
 
 ```mermaid
