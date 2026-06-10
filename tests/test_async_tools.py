@@ -1,7 +1,11 @@
+﻿"""Tests for async/shell-stream tool that emits real-time chunks."""
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+
+import pytest
 
 from ggbot.state.transcript import Transcript
 from ggbot.tools.context import ToolContext
@@ -9,9 +13,11 @@ from ggbot.tools.registry import ToolRegistry
 from ggbot.tools.shell_stream_tool import make_shell_stream_tool
 
 
+@pytest.mark.unit
 def test_shell_stream_emits_tool_stream_events(tmp_path: Path) -> None:
+    """A shell_stream command should emit at least one tool_stream chunk."""
     # Quick command; should still emit at least one tool_stream chunk.
-    cmd = f"\"{sys.executable}\" -c \"print('a'); print('b')\""
+    cmd = f""{sys.executable}" -c "print('a'); print('b')""
 
     shell_stream = make_shell_stream_tool(workspace_root=tmp_path)
 
@@ -38,3 +44,4 @@ def test_shell_stream_emits_tool_stream_events(tmp_path: Path) -> None:
 
     joined = "".join([c for c in chunks if isinstance(c, str)])
     assert "a" in joined or "b" in joined
+

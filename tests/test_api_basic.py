@@ -1,4 +1,4 @@
-"""API基本功能测试"""
+﻿"""API基本功能测试"""
 
 import sys
 import os
@@ -11,6 +11,7 @@ from ggbot.app.app_bootstrap import AgentRuntime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+@pytest.mark.unit
 def test_api_module_import():
     """测试API模块导入"""
     try:
@@ -20,6 +21,7 @@ def test_api_module_import():
         pytest.fail(f"API模块导入失败: {e}")
 
 
+@pytest.mark.unit
 def test_api_server_creation():
     """测试API服务器创建"""
     try:
@@ -50,6 +52,7 @@ def test_api_server_creation():
         pytest.fail(f"API服务器创建失败: {e}")
 
 
+@pytest.mark.unit
 def test_data_models():
     """测试数据模型"""
     try:
@@ -91,6 +94,7 @@ def test_data_models():
         pytest.fail(f"数据模型测试失败: {e}")
 
 
+@pytest.mark.unit
 def test_services_module():
     """测试服务模块"""
     try:
@@ -155,6 +159,7 @@ def test_services_module():
         pytest.fail(f"服务模块测试失败: {e}")
 
 
+@pytest.mark.unit
 def test_cli_command():
     """测试CLI命令"""
     try:

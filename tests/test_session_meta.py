@@ -1,4 +1,10 @@
+﻿"""Tests for session metadata persistence (turn counts, titles)."""
+
+from __future__ import annotations
+
 from pathlib import Path
+
+import pytest
 
 from ggbot.state.session_meta import (
     get_or_create,
@@ -9,7 +15,9 @@ from ggbot.state.session_meta import (
 )
 
 
+@pytest.mark.unit
 def test_session_meta_roundtrip(tmp_path: Path) -> None:
+    """Session metadata should survive a save-then-load cycle."""
     metas = {}
     increment_user_turn(metas, "repl")
     set_title(metas, "repl", title="Hello   World\nSecond line", title_gen_turn=1)
@@ -22,8 +30,11 @@ def test_session_meta_roundtrip(tmp_path: Path) -> None:
     assert loaded["repl"].title == "Hello World Second line"
 
 
+@pytest.mark.unit
 def test_session_meta_get_or_create_defaults(tmp_path: Path) -> None:
+    """get_or_create should return a meta with sensible defaults for a new session."""
     metas = {}
     meta = get_or_create(metas, "chat")
     assert meta.session_id == "chat"
     assert meta.title
+

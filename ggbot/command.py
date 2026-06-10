@@ -911,7 +911,7 @@ def log_view(
 
 @app.command()
 def api(
-    host: str = typer.Option("127.0.0.1", "--host", "-h", help="服务器主机地址"),
+    host: str = typer.Option("0.0.0.0", "--host", "-h", help="服务器主机地址，使用 0.0.0.0 可开放局域网访问"),
     port: int = typer.Option(8000, "--port", "-p", help="服务器端口"),
     workspace_root: Optional[Path] = typer.Option(None, "--workspace-root", help="工作空间根目录"),
     resume: Optional[str] = typer.Option(None, "--resume", help="恢复指定会话"),
@@ -958,6 +958,8 @@ def api(
     print(f"{'='*60}")
     print(f"地址: http://{host}:{port}")
     print(f"WebSocket: ws://{host}:{port}/ws")
+    if host == "0.0.0.0":
+        print("局域网访问: 请使用本机 IPv4 地址替换 0.0.0.0，例如 http://<你的IPv4>:{port}".format(port=port))
     print(f"日志级别: {log_level.upper()}")
     print(f"工作目录: {workspace_root or '默认'}")
     if resume:

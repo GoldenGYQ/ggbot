@@ -1,4 +1,4 @@
-"""API集成测试"""
+﻿"""API集成测试"""
 
 import tempfile
 import time
@@ -91,6 +91,7 @@ def test_client(api_server):
 class TestAPIServer:
     """API服务器测试"""
 
+@pytest.mark.need_api_key
     def test_root_endpoint(self, test_client):
         """测试根端点"""
         response = test_client.get("/")
@@ -100,6 +101,7 @@ class TestAPIServer:
         assert data["version"] == "0.1.0"
         assert data["status"] == "running"
 
+@pytest.mark.need_api_key
     def test_health_endpoint(self, test_client):
         """测试健康检查端点"""
         response = test_client.get("/api/v1/health")
@@ -108,6 +110,7 @@ class TestAPIServer:
         assert data["status"] == "healthy"
         assert "timestamp" in data
 
+@pytest.mark.need_api_key
     def test_get_config(self, test_client, mock_runtime):
         """测试获取配置"""
         response = test_client.get("/api/v1/config")
@@ -121,6 +124,7 @@ class TestAPIServer:
         assert data["skills_enabled"] is True
         assert data["skills_dir"] is None
 
+@pytest.mark.need_api_key
     def test_list_sessions(self, test_client):
         """测试获取会话列表"""
         response = test_client.get("/api/v1/sessions")
@@ -132,6 +136,7 @@ class TestAPIServer:
         assert "sessions" in data
         assert isinstance(data["sessions"], list)
 
+@pytest.mark.need_api_key
     def test_create_session(self, test_client):
         """测试创建会话"""
         payload = {
@@ -147,6 +152,7 @@ class TestAPIServer:
         assert data["type"] == "chat"
         assert "created_at" in data
 
+@pytest.mark.need_api_key
     def test_list_tools(self, test_client, mock_runtime):
         """测试获取工具列表"""
         response = test_client.get("/api/v1/tools")
@@ -355,6 +361,7 @@ class TestAPIServer:
         thread.join(timeout=2.0)
         assert result_holder.get("allowed") is True
 
+@pytest.mark.need_api_key
     def test_get_recent_events(self, test_client):
         """测试获取最近事件"""
         response = test_client.get("/api/v1/events?limit=10")
@@ -367,6 +374,7 @@ class TestAPIServer:
         assert data["limit"] == 10
         assert isinstance(data["events"], list)
 
+@pytest.mark.need_api_key
     def test_build_document_change_set_rest(self, test_client):
         """测试文档改动集 REST 接口。"""
         response = test_client.post(
@@ -385,6 +393,7 @@ class TestAPIServer:
         assert data["change_set"]["version"] == "change_set@v1"
         assert data["change_set"]["summary"]["total_ops"] >= 1
 
+@pytest.mark.need_api_key
     def test_build_document_change_set_ws_command(self, test_client):
         """测试文档改动集 WS 命令。"""
         messages = _ws_command(
@@ -403,6 +412,7 @@ class TestAPIServer:
         assert payload["document_id"] == "doc-ws"
         assert payload["change_set"]["summary"]["total_ops"] >= 1
 
+@pytest.mark.need_api_key
     def test_build_docx_manifest_rest(self, test_client):
         """测试 docx 清单构建 REST 接口。"""
         markdown_text = """```docx-plan
@@ -424,6 +434,7 @@ class TestAPIServer:
         events = test_client.get("/api/v1/events?limit=20").json()["events"]
         assert any(event["type"] == "doc_build_stage" for event in events)
 
+@pytest.mark.need_api_key
     def test_build_docx_manifest_ws_command(self, test_client):
         """测试 docx 清单构建 WS 命令。"""
         markdown_text = """```docx-section id=s1 path=docs/tmp/s1.md
@@ -440,6 +451,7 @@ class TestAPIServer:
         assert payload["success"] is True
         assert payload["manifest"]["schema_version"] == "doc_build@v1"
 
+@pytest.mark.need_api_key
     def test_run_docx_build_rest_resume(self, test_client, mock_runtime):
         """测试 docx build 执行与断点续跑。"""
         def fake_registry_call(name, arguments, ctx=None):
@@ -483,6 +495,7 @@ class TestAPIServer:
         assert rerun_payload["success"] is True
         assert rerun_payload["executed_steps"] == []
 
+@pytest.mark.need_api_key
     def test_run_docx_build_ws_section_retry(self, test_client, mock_runtime):
         """测试 docx build 按章节重跑。"""
         def fake_registry_call(name, arguments, ctx=None):
@@ -525,6 +538,7 @@ class TestAPIServer:
         assert payload["only_section_id"] == "s1"
         assert len(payload["executed_steps"]) >= 1
 
+@pytest.mark.need_api_key
     def test_run_docx_build_failure_returns_repair_suggestions(self, test_client, mock_runtime):
         """测试 build 失败时返回可执行修复建议。"""
         def fake_registry_call(name, arguments, ctx=None):
@@ -569,6 +583,7 @@ class TestAPIServer:
             "docx_add_heading",
         }
 
+@pytest.mark.need_api_key
     def test_get_recent_events_reflects_runtime_event_stream(self, test_client, mock_runtime):
         """测试最近事件来自主执行事件流，而不是全局总线旁路。"""
         mock_result = MagicMock()
@@ -696,6 +711,7 @@ class TestAPIServer:
         assert service.current_session_id == new_session_id
         assert mock_runtime.session_id == original_runtime_session_id
 
+@pytest.mark.need_api_key
     def test_update_config(self, test_client, mock_runtime):
         """测试更新配置"""
         payload = {
@@ -714,11 +730,13 @@ class TestAPIServer:
         assert data["thinking_enabled"] is True
         assert data["skills_enabled"] is False
 
+@pytest.mark.need_api_key
     def test_invalid_session_id(self, test_client):
         """测试无效的会话ID"""
         response = test_client.get("/api/v1/sessions/nonexistent")
         assert response.status_code == 404
 
+@pytest.mark.need_api_key
     def test_missing_required_field(self, test_client):
         """测试WS命令缺少 content 时退化为默认空字符串。"""
         mock_result = MagicMock()
@@ -739,6 +757,7 @@ class TestAPIServer:
         assert response["type"] == "response"
         assert response["payload"]["success"] is True
 
+@pytest.mark.need_api_key
     def test_cors_headers(self, test_client):
         """测试CORS头部"""
         response = test_client.options("/api/v1/health")
@@ -747,6 +766,7 @@ class TestAPIServer:
         assert "access-control-allow-origin" in response.headers
         assert response.headers["access-control-allow-origin"] == "*"
 
+@pytest.mark.need_api_key
     def test_schedule_event_delivery_uses_loop_threadsafe(self, api_server):
         """测试事件转发通过 loop.call_soon_threadsafe 调度"""
 
@@ -771,6 +791,7 @@ class TestAPIServer:
         assert fake_loop.called is True
         assert callable(fake_loop.callback)
 
+@pytest.mark.need_api_key
     def test_schedule_event_delivery_ignores_closed_loop(self, api_server):
         """测试事件循环关闭时不抛异常"""
 
@@ -830,12 +851,14 @@ class TestWebSocket:
 class TestErrorHandling:
     """错误处理测试"""
 
+@pytest.mark.need_api_key
     def test_server_initialization_error(self):
         """测试服务器初始化错误"""
         # 使用无效的运行时
         with pytest.raises(Exception):
             create_api_server(None)  # type: ignore[arg-type]
 
+@pytest.mark.need_api_key
     def test_invalid_json_payload(self, test_client):
         """测试无效的WS命令类型"""
         with TestClient(test_client.app) as client:
@@ -844,6 +867,7 @@ class TestErrorHandling:
                 response = websocket.receive_json()
                 assert response["type"] == "error"
 
+@pytest.mark.need_api_key
     def test_rate_limiting(self, test_client):
         """测试速率限制（如果实现）"""
         # 连续发送多个请求
@@ -851,6 +875,7 @@ class TestErrorHandling:
             response = test_client.get("/api/v1/health")
             assert response.status_code == 200  # 应该都成功
 
+@pytest.mark.need_api_key
     def test_large_payload(self, test_client):
         """测试大负载"""
         large_content = "A" * 10000  # 10KB的文本

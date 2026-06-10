@@ -1,4 +1,6 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
+"""Tests for workspace path restriction and permission enforcement."""
+
 # -*- coding: utf-8 -*-
 """测试工作区限制功能"""
 
@@ -14,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from ggbot.workspace.workspace_manager import WorkspaceManager, init_workspace_manager, get_workspace_manager
 
 
+@pytest.mark.unit
 def test_workspace_manager():
     """测试工作区管理器"""
     print("=== 测试工作区管理器 ===")
@@ -91,6 +94,7 @@ def test_workspace_manager():
     print("\n=== 所有测试完成 ===")
 
 
+@pytest.mark.unit
 def test_shell_command_validation():
     """测试shell命令验证"""
     print("\n=== 测试shell命令验证 ===")

@@ -1,13 +1,18 @@
+﻿"""Tests for the 'ggbot init' CLI command."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from ggbot.command import app
 
 
+@pytest.mark.unit
 def test_init_writes_workspace_env_file(tmp_path: Path) -> None:
+    """'ggbot init --yes' should write a valid .env file with provided API key, base URL, and model."""
     runner = CliRunner()
     env = {
         "HOME": str(tmp_path),
@@ -41,7 +46,9 @@ def test_init_writes_workspace_env_file(tmp_path: Path) -> None:
     assert "OPENAI_MODEL=demo-model" in content
 
 
+@pytest.mark.unit
 def test_init_yes_without_api_key_keeps_placeholder(tmp_path: Path) -> None:
+    """'ggbot init --yes' without --api-key should keep the placeholder comment."""
     runner = CliRunner()
     env = {
         "HOME": str(tmp_path),
@@ -63,3 +70,4 @@ def test_init_yes_without_api_key_keeps_placeholder(tmp_path: Path) -> None:
     env_file = Path(tmp_path) / ".ggbot" / ".env"
     content = env_file.read_text(encoding="utf-8")
     assert "# OPENAI_API_KEY=sk-your-key-here" in content
+

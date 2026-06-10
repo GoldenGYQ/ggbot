@@ -1,13 +1,21 @@
+﻿"""Tests for background job execution via shell_run."""
+
+from __future__ import annotations
+
 import sys
 import time
 from pathlib import Path
+
+import pytest
 
 from ggbot.tools.job_store import load_jobs
 from ggbot.tools.shell_tool import make_shell_tool
 from ggbot.tools.jobs_tool import make_job_tools
 
 
+@pytest.mark.unit
 def test_shell_run_background_creates_job_and_log(tmp_path: Path) -> None:
+    """Shell background execution should create a job entry and writable log file."""
     # Use a temp workspace_root so we don't touch real project state.
     ws = tmp_path
 
@@ -20,7 +28,7 @@ def test_shell_run_background_creates_job_and_log(tmp_path: Path) -> None:
     )
     shell_run_handler = getattr(shell_run, "__ggbot_tool__").handler
 
-    cmd = f"\"{sys.executable}\" -c \"print('hello-job')\""
+    cmd = f""{sys.executable}" -c "print('hello-job')""
     out = shell_run_handler({"command": cmd, "background": True}, None)
     assert "Started background job" in out
 
@@ -41,3 +49,4 @@ def test_shell_run_background_creates_job_and_log(tmp_path: Path) -> None:
     shell_tail_handler = getattr(shell_tail, "__ggbot_tool__").handler
     tail = shell_tail_handler({"job_id": job_id, "max_chars": 2000}, None)
     assert "hello-job" in tail
+

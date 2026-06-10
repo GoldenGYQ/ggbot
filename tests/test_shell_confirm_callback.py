@@ -1,3 +1,5 @@
+﻿"""Tests for shell confirmation callbacks and command path validation."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,7 +11,9 @@ from ggbot import _make_api_shell_confirm_callback
 from ggbot.tools.shell_tool import _validate_command_paths, make_shell_tool
 
 
+@pytest.mark.unit
 def test_shell_confirm_callback_cancels(tmp_path: Path) -> None:
+    """When confirm_callback returns a rejection string, shell_run should return it."""
     shell_run = make_shell_tool(
         workspace_root=tmp_path,
         confirm=True,
@@ -23,7 +27,9 @@ def test_shell_confirm_callback_cancels(tmp_path: Path) -> None:
     assert out == "nope"
 
 
+@pytest.mark.unit
 def test_api_shell_confirm_callback_approves(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The API confirm callback should return None when the permission manager approves."""
     logger = MagicMock()
     fake_manager = MagicMock()
     fake_manager.request.return_value = (True, "", "req-1")
@@ -36,6 +42,9 @@ def test_api_shell_confirm_callback_approves(monkeypatch: pytest.MonkeyPatch) ->
     assert out is None
 
 
+@pytest.mark.unit
 def test_validate_command_paths_allows_windows_dir_switch(tmp_path: Path) -> None:
-    # Regression: '/B' in `dir /B` should be treated as a switch, not a filesystem path.
+    """/B in 'dir /B' should be treated as a switch, not a filesystem path (regression test)."""
+    # Regression: '/B' in dir /B should be treated as a switch, not a filesystem path.
     _validate_command_paths("echo GGbot is running! && dir /B", tmp_path)
+

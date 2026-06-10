@@ -1,3 +1,5 @@
+﻿"""Integration tests for the config loading system (env, TOML, .env file priority)."""
+
 #!/usr/bin/env python3
 """Test configuration loading with thinking enabled."""
 
@@ -10,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from ggbot.app.config import Settings
 
+@pytest.mark.unit
 def test_thinking_config():
     """Test that thinking configuration is loaded correctly."""
 
@@ -89,3 +92,5 @@ max_turns = 10
 
 if __name__ == "__main__":
     test_thinking_config()
+
+

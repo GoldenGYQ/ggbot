@@ -1,8 +1,11 @@
+﻿"""Tests for the 'ggbot log' CLI command."""
+
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from ggbot.cli import app
@@ -16,7 +19,9 @@ def strip_ansi_codes(text: str) -> str:
     return ansi_escape.sub('', text)
 
 
+@pytest.mark.unit
 def test_log_command_shows_messages_for_session(tmp_path: Path) -> None:
+    """'ggbot log --session repl' should render user and assistant messages."""
     transcript_dir = tmp_path / ".ggbot" / "transcripts"
     transcript = Transcript(path=transcript_dir / "repl.jsonl")
     transcript.append("model_message", ChatMessage(role="user", content="hello").model_dump(exclude_none=True))
@@ -31,7 +36,9 @@ def test_log_command_shows_messages_for_session(tmp_path: Path) -> None:
     assert "[ASSISTANT] hi there" in strip_ansi_codes(res.stdout)
 
 
+@pytest.mark.unit
 def test_log_command_handles_missing_session(tmp_path: Path) -> None:
+    """'ggbot log --session does-not-exist' should show a 'No transcript found' message."""
     runner = CliRunner()
     res = runner.invoke(app, ["log", "--workspace-root", str(tmp_path), "--session", "does-not-exist"])
 
@@ -39,7 +46,9 @@ def test_log_command_handles_missing_session(tmp_path: Path) -> None:
     assert "No transcript found" in res.stdout
 
 
+@pytest.mark.unit
 def test_log_command_includes_runtime_events_by_default(tmp_path: Path) -> None:
+    """By default, 'ggbot log' should include runtime events (tool_call, tool_result)."""
     transcript_dir = tmp_path / ".ggbot" / "transcripts"
     transcript = Transcript(path=transcript_dir / "repl.jsonl")
     transcript.append("tool_call", {"id": "call_1", "name": "workspace_list", "arguments": {"path": "."}})
@@ -53,7 +62,9 @@ def test_log_command_includes_runtime_events_by_default(tmp_path: Path) -> None:
     assert "[EVENT] tool_result name=workspace_list status=ok" in strip_ansi_codes(res.stdout)
 
 
+@pytest.mark.unit
 def test_log_command_can_disable_runtime_events(tmp_path: Path) -> None:
+    """'ggbot log --no-events' should suppress runtime event output but keep model messages."""
     transcript_dir = tmp_path / ".ggbot" / "transcripts"
     transcript = Transcript(path=transcript_dir / "repl.jsonl")
     transcript.append("tool_call", {"id": "call_1", "name": "workspace_list", "arguments": {"path": "."}})
@@ -67,7 +78,9 @@ def test_log_command_can_disable_runtime_events(tmp_path: Path) -> None:
     assert "[USER] hello" in strip_ansi_codes(res.stdout)
 
 
+@pytest.mark.unit
 def test_log_command_renders_status_events(tmp_path: Path) -> None:
+    """Status events should be rendered with stage, percent, and message."""
     transcript_dir = tmp_path / ".ggbot" / "transcripts"
     transcript = Transcript(path=transcript_dir / "repl.jsonl")
     transcript.append("status", {"message": "Working...", "stage": "run", "percent": 5})
@@ -77,3 +90,4 @@ def test_log_command_renders_status_events(tmp_path: Path) -> None:
 
     assert res.exit_code == 0
     assert "[EVENT] status stage=run percent=5 Working..." in strip_ansi_codes(res.stdout)
+

@@ -531,7 +531,7 @@ class APIService:
                           max_turns: Optional[int] = None,
                           thinking_enabled: Optional[bool] = None,
                           provider_thinking: Optional[bool] = None,
-                          stream: bool = False,
+                        #   stream: bool = False,
                           event_callback: Optional[Callable[[RuntimeEvent], None]] = None,
                           connection_id: Optional[str] = None) -> Dict[str, Any]:
         """发送消息并获取响应"""

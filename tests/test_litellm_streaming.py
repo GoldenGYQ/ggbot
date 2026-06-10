@@ -1,3 +1,5 @@
+﻿"""Tests for LiteLLM client streaming and tool-call delta merging."""
+
 from __future__ import annotations
 
 from typing import Any, Iterable
@@ -9,7 +11,9 @@ from ggbot.models.protocol_models import ChatMessage
 from ggbot.providers.litellm_client import LiteLLMClient
 
 
+@pytest.mark.unit
 def test_litellm_stream_and_collect_merges_content_and_tool_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Streaming responses with interleaved text and tool-call deltas should merge correctly."""
     chunks: list[dict[str, Any]] = [
         {"choices": [{"delta": {"content": "Hel"}}]},
         {"choices": [{"delta": {"content": "lo"}}]},
@@ -21,7 +25,7 @@ def test_litellm_stream_and_collect_merges_content_and_tool_calls(monkeypatch: p
                             {
                                 "index": 0,
                                 "id": "call_1",
-                                "function": {"name": "file_read", "arguments": "{\"path\":\"foo"},
+                                "function": {"name": "file_read", "arguments": "{"path":"foo"},
                             }
                         ]
                     }
@@ -33,7 +37,7 @@ def test_litellm_stream_and_collect_merges_content_and_tool_calls(monkeypatch: p
                 {
                     "delta": {
                         "tool_calls": [
-                            {"index": 0, "function": {"arguments": ".txt\"}"}}
+                            {"index": 0, "function": {"arguments": ".txt"}"}}
                         ]
                     },
                     "finish_reason": "tool_calls",
@@ -63,3 +67,4 @@ def test_litellm_stream_and_collect_merges_content_and_tool_calls(monkeypatch: p
     assert final.tool_calls[0].id == "call_1"
     assert final.tool_calls[0].function.name == "file_read"
     assert final.tool_calls[0].function.arguments == '{"path":"foo.txt"}'
+

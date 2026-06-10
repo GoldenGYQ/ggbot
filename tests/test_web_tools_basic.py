@@ -1,4 +1,4 @@
-"""Basic tests for web tools (web_search, web_fetch)."""
+﻿"""Basic tests for web tools (web_search, web_fetch)."""
 
 import sys
 from pathlib import Path
@@ -10,6 +10,7 @@ from ggbot.tools.web import make_web_tools
 from ggbot.tools.registry import ToolRegistry
 
 
+@pytest.mark.unit
 def test_tool_creation():
     """Test that web tools can be created."""
     web_search, web_fetch = make_web_tools()
@@ -20,6 +21,7 @@ def test_tool_creation():
     print("Tool creation test passed")
 
 
+@pytest.mark.unit
 def test_tool_registration():
     """Test that tools can be registered in ToolRegistry."""
     web_search, web_fetch = make_web_tools()
@@ -40,6 +42,7 @@ def test_tool_registration():
     print(" Tool registration test passed")
 
 
+@pytest.mark.unit
 def test_tool_specs():
     """Test tool specifications."""
     web_search, web_fetch = make_web_tools()
@@ -63,6 +66,7 @@ def test_tool_specs():
     print(" Tool specs test passed")
 
 
+@pytest.mark.unit
 def test_web_tool_functions():
     """Test web tool helper functions."""
     from ggbot.tools.web import _strip_tags, _normalize, _validate_url
@@ -93,6 +97,7 @@ def test_web_tool_functions():
     print(" Web tool helper functions test passed")
 
 
+@pytest.mark.unit
 def test_make_web_tools_function():
     """Test make_web_tools function returns correct number of tools."""
     tools = make_web_tools()

@@ -1,3 +1,5 @@
+﻿"""Manual end-to-end API tests — requires a running GGbot server."""
+
 #!/usr/bin/env python3
 """测试GGbot API功能"""
 

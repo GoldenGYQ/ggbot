@@ -1,11 +1,19 @@
+﻿"""Tests for SkillResolver: trigger matching, directory priority, and system message builder."""
+
+from __future__ import annotations
+
 from pathlib import Path
+
+import pytest
 
 from ggbot.app.config import Settings
 from ggbot.skills import SkillResolver, build_skill_system_message
 from ggbot.skills import resolver as skill_resolver_module
 
 
+@pytest.mark.unit
 def test_skill_resolver_match(tmp_path: Path) -> None:
+    """A skill with a matching trigger word should be resolved and included in the system message."""
     skills_dir = tmp_path / "skills"
     skill_dir = skills_dir / "skill-docx"
     skill_dir.mkdir(parents=True, exist_ok=True)
@@ -36,7 +44,9 @@ Use docx tools for document tasks.
     assert "docx_create" in msg
 
 
+@pytest.mark.unit
 def test_skill_resolver_prefers_workspace_ggbot_dir(tmp_path: Path) -> None:
+    """Skills in .ggbot/skills should be discoverable."""
     skills_dir = tmp_path / ".ggbot" / "skills"
     skill_dir = skills_dir / "skill-docx"
     skill_dir.mkdir(parents=True, exist_ok=True)
@@ -63,7 +73,9 @@ Use .ggbot skills.
     assert resolution.skills[0].name == "skill-docx"
 
 
+@pytest.mark.unit
 def test_skill_resolver_supports_workspace_root_skills_dir(tmp_path: Path) -> None:
+    """Skills in <workspace_root>/skills should be discoverable as a fallback."""
     skills_dir = tmp_path / "skills"
     skill_dir = skills_dir / "skill-weather"
     skill_dir.mkdir(parents=True, exist_ok=True)
@@ -90,9 +102,12 @@ Use weather skill.
     assert resolution.skills[0].name == "skill-weather"
 
 
+@pytest.mark.unit
 def test_skill_resolver_includes_builtin_skill_dir(tmp_path: Path) -> None:
+    """The built-in skills directory (ggbot/skills) should be in the candidate list."""
     settings = Settings.load(workspace_root=tmp_path)
     resolver = SkillResolver(settings=settings)
     built_in_dir = Path(skill_resolver_module.__file__).resolve().parent
     candidates = [path.resolve() for path in resolver._candidate_dirs()]  # noqa: SLF001
     assert built_in_dir in candidates
+

@@ -1,6 +1,10 @@
+﻿"""Tests for the tool_printer callback in the agent loop."""
+
 from __future__ import annotations
 
 from typing import Any
+
+import pytest
 
 from ggbot.runtime.agent_loop import run_query
 from ggbot.state.transcript import Transcript
@@ -32,7 +36,9 @@ class _FakeClient:
         return AssistantFinal(content="done", tool_calls=[])
 
 
-def test_tool_printer_called(tmp_path) -> None:
+@pytest.mark.unit
+def test_tool_printer_called(tmp_path: Path) -> None:
+    """The tool_printer callback should be invoked with tool name and output."""
     registry = ToolRegistry()
 
     def echo(args: dict[str, Any], ctx) -> str:
@@ -69,3 +75,4 @@ def test_tool_printer_called(tmp_path) -> None:
     )
 
     assert printed == [('echo', 'ok:1')]
+

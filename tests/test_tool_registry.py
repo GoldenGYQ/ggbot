@@ -1,7 +1,11 @@
-from pathlib import Path
+﻿"""Tests for ToolRegistry: registration, schema generation, context injection, and validation."""
 
+from __future__ import annotations
+
+from pathlib import Path
 from typing import Any
 
+import pytest
 from pydantic import BaseModel, Field
 
 from ggbot.state.transcript import Transcript
@@ -24,7 +28,9 @@ def echo_inferred(args: EchoArgs) -> str:
     return args.text
 
 
+@pytest.mark.unit
 def test_tool_decorator_registers_and_validates() -> None:
+    """A tool registered via @tool decorator should validate inputs and execute correctly."""
     reg = ToolRegistry()
     decorated = getattr(echo, "__ggbot_tool__")
     reg.register(decorated.spec, decorated.handler)
@@ -39,7 +45,9 @@ def test_tool_decorator_registers_and_validates() -> None:
         pass
 
 
+@pytest.mark.unit
 def test_tool_decorator_infers_name_description_and_model() -> None:
+    """A tool without explicit name/description should infer them from the function."""
     reg = ToolRegistry()
     reg.register_tool(echo_inferred)
 
@@ -50,7 +58,9 @@ def test_tool_decorator_infers_name_description_and_model() -> None:
     assert "echo_inferred" in fn_names
 
 
+@pytest.mark.unit
 def test_openai_tool_schema_shape() -> None:
+    """The generated OpenAI-compatible tool schema should have the correct structure."""
     reg = ToolRegistry()
     decorated = getattr(echo, "__ggbot_tool__")
     reg.register(decorated.spec, decorated.handler)
@@ -65,11 +75,12 @@ def test_openai_tool_schema_shape() -> None:
 @tool()
 def echo_with_ctx(ctx: ToolContext, args: EchoArgs) -> str:
     """echo with ctx"""
-
     return f"{ctx.session_id}:{args.text}"
 
 
+@pytest.mark.unit
 def test_tool_registry_supports_context_injection(tmp_path: Path) -> None:
+    """Tools that accept a ToolContext should have it injected automatically."""
     reg = ToolRegistry()
     reg.register_tool(echo_with_ctx)
 
@@ -83,3 +94,4 @@ def test_tool_registry_supports_context_injection(tmp_path: Path) -> None:
         assert False, "expected missing ctx error"
     except TypeError:
         pass
+

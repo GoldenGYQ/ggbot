@@ -1,3 +1,5 @@
+﻿"""Tests for the PermissionManager: request/response flow, timeout, and transcript integration."""
+
 from __future__ import annotations
 
 import json
@@ -5,12 +7,16 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from ggbot.api.permission_manager import PermissionManager
 from ggbot.state.transcript import Transcript
 from ggbot.models.runtime_models import RuntimeEvent
 
 
+@pytest.mark.unit
 def test_permission_manager_request_and_resolve() -> None:
+    """A permission request should block until resolved, then return the approved result."""
     manager = PermissionManager(default_timeout_s=1.0)
 
     events: list[RuntimeEvent] = []
@@ -63,7 +69,9 @@ def test_permission_manager_request_and_resolve() -> None:
     assert any(ev.type == "permission_response" and ev.data.get("allowed") is True for ev in events)
 
 
+@pytest.mark.unit
 def test_permission_manager_timeout_denies() -> None:
+    """A permission request that times out should be denied with a timeout reason."""
     manager = PermissionManager(default_timeout_s=0.02)
     allowed, reason, _ = manager.request(
         tool_name="shell_run",
@@ -74,7 +82,9 @@ def test_permission_manager_timeout_denies() -> None:
     assert "timed out" in reason
 
 
+@pytest.mark.unit
 def test_permission_manager_writes_permission_events_to_request_transcript(tmp_path: Path) -> None:
+    """Permission request/response events should be written to the transcript."""
     manager = PermissionManager(default_timeout_s=1.0)
     transcript = Transcript(path=tmp_path / "permission.jsonl")
 
@@ -132,3 +142,4 @@ def test_permission_manager_writes_permission_events_to_request_transcript(tmp_p
 
     lines = [json.loads(line) for line in transcript.path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert [line["data"]["_event_type"] for line in lines] == ["permission_request", "permission_response"]
+

@@ -1,4 +1,4 @@
-"""Tests for thinking functionality."""
+﻿"""Tests for thinking functionality."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from ggbot.prompts.builder import PromptBuilder
 from ggbot.prompts.repository import PromptRepository, _default_layers
 
 
+@pytest.mark.unit
 def test_thinking_extraction() -> None:
     """Test extraction of thinking content from various formats."""
 
@@ -47,6 +48,7 @@ def test_thinking_extraction() -> None:
     assert answer == "Direct answer without thinking"
 
 
+@pytest.mark.unit
 def test_chatmessage_with_thinking() -> None:
     """Test ChatMessage serialization with thinking field."""
 
@@ -74,6 +76,7 @@ def test_chatmessage_with_thinking() -> None:
     assert restored.thinking == "Thinking content"
 
 
+@pytest.mark.unit
 def test_thinking_config() -> None:
     """Test thinking configuration."""
 
@@ -90,6 +93,7 @@ def test_thinking_config() -> None:
     assert isinstance(settings.thinking_enabled, bool)
 
 
+@pytest.mark.unit
 def test_prompt_with_thinking() -> None:
     """Test prompt generation with thinking enabled."""
 
@@ -133,6 +137,7 @@ def test_prompt_with_thinking() -> None:
     assert "Thinking format instructions" not in rendered_without.content
 
 
+@pytest.mark.unit
 def test_thinking_in_default_prompts() -> None:
     """Test that default prompts include thinking_format layer."""
 
@@ -150,6 +155,7 @@ def test_thinking_in_default_prompts() -> None:
     assert "Thinking:" in thinking_layer.template
 
 
+@pytest.mark.unit
 def test_thinking_event_in_transcript() -> None:
     """Test that thinking events can be recorded in transcript."""
 

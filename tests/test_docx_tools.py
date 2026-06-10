@@ -1,3 +1,7 @@
+﻿"""Tests for DOCX creation, editing, table operations, and style updates."""
+
+from __future__ import annotations
+
 from pathlib import Path
 import json
 
@@ -13,7 +17,9 @@ def _as_dict(value):
     return json.loads(value)
 
 
+@pytest.mark.unit
 def test_docx_tools_basic_flow(tmp_path: Path) -> None:
+    """A basic create -> add heading -> add paragraph -> read outline -> save-as flow should succeed."""
     pytest.importorskip("docx")
     tools = make_docx_tools(workspace_root=tmp_path)
     registry = ToolRegistry()
@@ -39,7 +45,9 @@ def test_docx_tools_basic_flow(tmp_path: Path) -> None:
     assert (tmp_path / "docs" / "b.docx").exists()
 
 
+@pytest.mark.unit
 def test_docx_tools_from_file_and_inline_limit(tmp_path: Path) -> None:
+    """Text from a file can be appended; inline text over 4000 chars should be rejected."""
     pytest.importorskip("docx")
     tools = make_docx_tools(workspace_root=tmp_path)
     registry = ToolRegistry()
@@ -61,7 +69,9 @@ def test_docx_tools_from_file_and_inline_limit(tmp_path: Path) -> None:
         registry.call("docx_add_paragraph", {"path": "docs/a.docx", "text": long_text})
 
 
+@pytest.mark.unit
 def test_docx_tools_inspect_and_table_style_update(tmp_path: Path) -> None:
+    """Tables can be created, inspected, and their styles updated."""
     pytest.importorskip("docx")
     tools = make_docx_tools(workspace_root=tmp_path)
     registry = ToolRegistry()
@@ -106,7 +116,9 @@ def test_docx_tools_inspect_and_table_style_update(tmp_path: Path) -> None:
     assert read_after["style"]
 
 
+@pytest.mark.unit
 def test_docx_tools_update_cell_style_and_replace_in_table(tmp_path: Path) -> None:
+    """Individual cell styles can be updated and text can be replaced in table cells."""
     pytest.importorskip("docx")
     tools = make_docx_tools(workspace_root=tmp_path)
     registry = ToolRegistry()
@@ -155,3 +167,4 @@ def test_docx_tools_update_cell_style_and_replace_in_table(tmp_path: Path) -> No
     read_out = _as_dict(registry.call("docx_read_table", {"path": "docs/cell.docx", "table_index": 0}))
     assert read_out["rows"][1][1] == "done"
     assert read_out["rows"][2][1] == "done"
+

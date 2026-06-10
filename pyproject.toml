@@ -1,4 +1,4 @@
-[project]
+﻿[project]
 name = "ggbot"
 version = "0.1.0"
 description = "GGBot - a minimal Claude-Code-inspired CLI agent (Python MVP)"
@@ -33,7 +33,10 @@ addopts = "-q"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
-  "integration: marks tests as integration tests",
+  "integration: marks tests as integration tests (need running server)",
+  "unit: marks tests as pure unit tests (no external deps)",
+  "need_api_key: marks tests that require a real LLM API key",
+  "slow: marks tests that are slow to run",
 ]
 
 [build-system]
@@ -47,3 +50,4 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["ggbot"]
+
